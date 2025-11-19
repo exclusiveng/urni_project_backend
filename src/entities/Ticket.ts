@@ -3,16 +3,16 @@ import { User } from "./User";
 
 export enum TicketStatus {
   OPEN = "OPEN",
-  RESOLVED = "RESOLVED",   // Acknowledged/Accepted
+  RESOLVED = "RESOLVED",   
   CONTESTED = "CONTESTED", // Employee disputed it
   VOIDED = "VOIDED"        // HR cancelled it
 }
 
 export enum TicketSeverity {
-  LOW = 1,    // -1 Point
-  MEDIUM = 5, // -5 Points
-  HIGH = 10,  // -10 Points
-  CRITICAL = 20 // -20 Points
+  LOW = 1,    
+  MEDIUM = 5, 
+  HIGH = 10, 
+  CRITICAL = 20 
 }
 
 @Entity("tickets")
@@ -66,7 +66,7 @@ export class Ticket {
   contest_note: string;
 
   @Column("text", { nullable: true })
-  resolution_note: string; // Added by HR if they step in
+  resolution_note: string; 
 
   @CreateDateColumn()
   created_at: Date;

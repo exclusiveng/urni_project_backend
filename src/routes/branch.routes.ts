@@ -19,7 +19,7 @@ router.get("/", getAllBranches);
 router.get("/:id", getBranchById);
 
 // Admin Only: Create, Update, Delete branches
-router.use(restrictTo(UserRole.CEO, UserRole.SUPERADMIN));
+router.use(restrictTo(UserRole.CEO, UserRole.ME_QC));
 
 router.post("/", createBranch);
 router.patch("/:id", updateBranch);

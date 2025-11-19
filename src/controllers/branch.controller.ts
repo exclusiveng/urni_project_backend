@@ -101,7 +101,7 @@ export const getBranchById = async (req: Request, res: Response): Promise<Respon
 export const updateBranch = async (req: Request, res: Response): Promise<Response | void>=> {
   try {
     const { id } = req.params;
-    const { name, location_city, address, gps_lat, gps_long, radius_meters, br  } = req.body;
+    const { name, location_city, address, gps_lat, gps_long, radius_meters  } = req.body;
 
     const branch = await branchRepo.findOneBy({ id });
     if (!branch) {

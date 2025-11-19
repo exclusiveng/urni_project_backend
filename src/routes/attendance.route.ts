@@ -12,6 +12,6 @@ router.post("/clock-in", clockIn);
 router.post("/clock-out", clockOut);
 
 // Admin only: Manage Branches
-router.post("/branches", restrictTo(UserRole.SUPERADMIN, UserRole.CEO), createBranch);
+router.post("/branches", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), createBranch);
 
 export default router;

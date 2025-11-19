@@ -54,12 +54,10 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
 
     // --- SCENARIO A: CEO (GOD MODE) ---
     if (user.role === UserRole.CEO) {
-        // CEO can see EVERYTHING.
-        // If they provide a contactId, we can filter to show messages involving that person
+        
         if (contactId) {
             query.where("message.sender_id = :contactId OR message.receiver_id = :contactId", { contactId });
         }
-        // If no contactId, they get the entire company firehose (maybe paginate this in frontend)
     } 
     
     // --- SCENARIO B: STANDARD USER ---
@@ -84,8 +82,6 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
 
     const messages = await query.getMany();
 
-    // Sanitize: We don't need full user objects, just names/avatars usually
-    // But TypeORM returns what we asked. Frontend can filter.
     
     res.status(200).json({ 
         status: "success", 
@@ -99,36 +95,40 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
 };
 
 // 3. Get Inbox (List of people I've talked to)
-// This is a complex query to get "Latest message per contact"
 export const getInbox = async (req: AuthRequest, res: Response) => {
     try {
         const user = req.user!;
-        // This is a simplified version. In production, you'd use a DISTINCT ON query or similar.
-        // Logic: Find all messages where I am sender OR receiver.
-        
-        // Use a raw query for performance if necessary, but here is logic:
-        // Fetch unique user IDs involved in chats with me.
-        
-        const messages = await messageRepo.find({
-            where: [
-                { sender_id: user.id },
-                { receiver_id: user.id }
-            ],
-            order: { created_at: "DESC" },
-            take: 50 // Limit to recent history
-        });
+        const userId = user.id;
 
-        // Extract unique contacts
-        const contactIds = new Set<string>();
-        messages.forEach(m => {
-            if (m.sender_id !== user.id) contactIds.add(m.sender_id);
-            if (m.receiver_id !== user.id) contactIds.add(m.receiver_id);
-        });
+        const latestMessagesSubquery = messageRepo.createQueryBuilder("msg")
+            .select("MAX(msg.id)", "max_id")
+            .where("msg.sender_id = :userId OR msg.receiver_id = :userId", { userId })
+            .groupBy("CASE WHEN msg.sender_id = :userId THEN msg.receiver_id ELSE msg.sender_id END");
 
-        // Fetch contact details
-        const contacts = await userRepo.findByIds(Array.from(contactIds));
-        
-        res.status(200).json({ status: "success", data: contacts });
+        // The main query fetches the full message and contact details for each latest message.
+        const inbox = await messageRepo.createQueryBuilder("message")
+            .innerJoin(
+                `(${latestMessagesSubquery.getQuery()})`, 
+                "latest_msg", 
+                "latest_msg.max_id = message.id"
+            )
+            .setParameters(latestMessagesSubquery.getParameters())
+            // Determine the contact (the other person in the chat)
+            .innerJoinAndSelect(
+                "message.sender", 
+                "sender", 
+                "sender.id != :userId"
+            )
+            .innerJoinAndSelect(
+                "message.receiver", 
+                "receiver",
+                "receiver.id != :userId"
+            )
+            .orderBy("message.created_at", "DESC")
+            .getMany();
+
+
+        res.status(200).json({ status: "success", data: inbox });
 
     } catch (error: any) {
         res.status(500).json({ message: error.message });

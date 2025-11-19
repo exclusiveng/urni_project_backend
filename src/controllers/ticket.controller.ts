@@ -13,24 +13,32 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
     const { target_user_id, title, description, severity, is_anonymous } = req.body;
     const issuer = req.user!;
 
-    // Validation: Does target exist?
+
     const target = await userRepo.findOne({ where: { id: target_user_id } });
     if (!target) {
       return res.status(404).json({ message: "Target user not found" });
     }
 
-    // Logic: Who can issue to whom?
-    // 1. Whistleblowing (Any Staff -> Any Manager/Staff)
-    if (is_anonymous) {
-        // Allow it, but mark anonymous
-    } 
-    // 2. Standard Disciplinary (Manager -> Subordinate)
-    else {
-        // Simple check: Is issuer a manager?
-        if (issuer.role === UserRole.STAFF) {
-            return res.status(403).json({ message: "Staff cannot issue disciplinary tickets. Use anonymous whistleblowing instead." });
+
+    if (!is_anonymous) {
+        // For non-anonymous tickets, we enforce a stricter hierarchy check.
+        
+        // 1. General Staff cannot issue non-anonymous disciplinary tickets.
+        if (issuer.role === UserRole.GENERAL_STAFF) {
+            return res.status(403).json({ message: "General Staff cannot issue disciplinary tickets directly. Please use the anonymous whistleblowing feature if you need to report an issue." });
         }
-        // In a stricter system, we would check if target.reports_to_id === issuer.id
+
+        // 2. For other roles, check their authority:
+        // CEO, ADMIN, and ME_QC roles have broad authority and can issue tickets to anyone.
+        if (![UserRole.CEO, UserRole.ADMIN, UserRole.ME_QC].includes(issuer.role)) {
+            // For roles like DEPARTMENT_HEAD, they can only issue tickets to their direct subordinates.
+            // This check ensures the target user reports directly to the issuer.
+            if (target.reports_to_id !== issuer.id) {
+                return res.status(403).json({ 
+                    message: "You can only issue disciplinary tickets to users who directly report to you." 
+                });
+            }
+        }
     }
 
     const ticket = ticketRepo.create({
@@ -115,35 +123,57 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
 export const getTickets = async (req: AuthRequest, res: Response): Promise<Response | void> => {
     try {
         const user = req.user!;
+        const page = parseInt(req.query.page as string) || 1; // Default to page 1
+        const limit = parseInt(req.query.limit as string) || 10; // Default to 10 items per page
+        const skip = (page - 1) * limit;
         
         // Scenario A: CEO/SuperAdmin (God Mode - See Contested or All)
-        if ([UserRole.CEO, UserRole.SUPERADMIN].includes(user.role)) {
+        if ([UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(user.role)) {
              // Show all, specifically highlighting contested ones
-             const tickets = await ticketRepo.find({
+             const [tickets, total] = await ticketRepo.findAndCount({
                 order: { created_at: "DESC" },
-                relations: ["target_user", "issuer"]
+                relations: ["target_user", "issuer"],
+                skip,
+                take: limit
              });
              // Hide issuer name if anonymous
              const sanitized = tickets.map(t => ({
                  ...t,
                  issuer: t.is_anonymous ? null : t.issuer
              }));
-             return res.status(200).json({ status: "success", data: sanitized });
+             return res.status(200).json({ 
+                status: "success", 
+                data: sanitized,
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            });
         }
 
         // Scenario B: Staff (See tickets against ME)
-        const myTickets = await ticketRepo.find({
+        const [myTickets, total] = await ticketRepo.findAndCount({
             where: { target_user_id: user.id },
             order: { created_at: "DESC" },
-            relations: ["issuer"]
+            relations: ["issuer"],
+            skip,
+            take: limit
         });
         
         const sanitized = myTickets.map(t => ({
              ...t,
              issuer: t.is_anonymous ? { name: "Anonymous" } : t.issuer
         }));
+        const totalPages = Math.ceil(total / limit);
 
-        res.status(200).json({ status: "success", data: sanitized });
+        res.status(200).json({ 
+            status: "success", 
+            data: sanitized,
+            page,
+            limit,
+            total,
+            totalPages
+        });
 
     } catch (error: any) {
         res.status(500).json({ message: error.message });

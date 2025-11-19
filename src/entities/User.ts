@@ -2,13 +2,13 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { Department } from "./Department";
 import { Branch } from "./Branch";
 
+// The UserRole enum has been updated to use more descriptive and professional role names.
 export enum UserRole {
   CEO = "CEO",
-  SUPERADMIN = "SUPERADMIN",
-  HOD = "HOD",
-  SUB_DEPT_HEAD = "SUB_DEPT_HEAD",
-  PROJECT_LEAD = "PROJECT_LEAD",
-  STAFF = "STAFF",
+  ME_QC = "ME_QC", 
+  ADMIN = "ADMIN",
+  DEPARTMENT_HEAD = "DEPARTMENT_HEAD",
+  GENERAL_STAFF = "GENERAL_STAFF",
 }
 
 @Entity("users")
@@ -42,14 +42,14 @@ export class User {
   @Column({
     type: "enum",
     enum: UserRole,
-    default: UserRole.STAFF,
+    default: UserRole.GENERAL_STAFF,
   })
   role: UserRole;
 
   @Column({ type: "float", default: 100.0 })
   stats_score: number;
 
-  @Column({ type: "int", default: 20 }) // Default 20 days leave
+  @Column({ type: "int", default: 20 })
   leave_balance: number;
 
   @Column({ default: true })

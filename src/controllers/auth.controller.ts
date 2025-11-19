@@ -58,8 +58,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
 
     let profile_pic_url: string | undefined = undefined;
     if (req.file) {
-      // Construct the URL to the image
-      // The path is relative to the server root, so we replace backslashes for URL compatibility
+
       const imagePath = req.file.path.replace(/\\/g, "/"); 
       profile_pic_url = `${req.protocol}://${req.get("host")}/${imagePath}`;
     }
@@ -73,7 +72,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
       name,
       email,
       password: hashedPassword,
-      role: role || UserRole.STAFF,
+      role: role || UserRole.GENERAL_STAFF,
       department_id: department_id,
       reports_to_id: reports_to_id,
       branch_id: branch_id,
@@ -114,14 +113,14 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
     }
 
     // 2. Check if user exists & password is correct
-    // We explicitly select password because it's hidden by default in entity
+    // We select password because it's hidden by default in entity
     const user = await userRepo.createQueryBuilder("user")
       .addSelect("user.password")
       .where("user.email = :email", { email })
       .getOne();
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: "Incorrect email or password" }); // Keep return here for early exit
+      return res.status(401).json({ message: "Incorrect email or password" });
     }
 
     // 3. Send Token

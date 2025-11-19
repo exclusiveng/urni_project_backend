@@ -26,8 +26,6 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
       return res.status(400).json({ message: "You do not have a manager assigned to approve this request." });
     }
 
-    // Create Request
-    // If CEO requests, they might self-approve or go to a Board Member (assuming self-approve for now/God Mode)
     const initialApprover = user.reports_to_id || user.id; 
 
     const leave = leaveRepo.create({
@@ -77,7 +75,7 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
     if (action === "REJECT") {
       leave.status = LeaveStatus.REJECTED;
       leave.approval_history.push(`Rejected by ${approver.name} (${approver.role})`);
-      leave.current_approver_id = null; // No further action needed
+      leave.current_approver_id = null;
       await leaveRepo.save(leave);
       return res.status(200).json({ status: "success", message: "Leave request rejected.", data: leave });
     }
@@ -86,7 +84,7 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
     leave.approval_history.push(`Approved by ${approver.name} (${approver.role})`);
 
     // Check if Approver is a "Major Head"
-    const isMajorHead = [UserRole.CEO, UserRole.SUPERADMIN, UserRole.HOD].includes(approver.role);
+    const isMajorHead = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(approver.role);
 
     if (isMajorHead) {
       // FINAL APPROVAL
@@ -107,16 +105,9 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       return res.status(200).json({ status: "success", message: "Leave request fully approved.", data: leave });
 
     } else {
-      // ESCALATION: Move to this approver's boss
-      // We need to fetch the current approver's boss
-      // Since 'approver' is req.user, we might need to load their relation if not loaded by middleware, 
-      // but reports_to_id is a column, so it should be there.
       
       if (!approver.reports_to_id) {
-         // Safety net: If a middle manager has no boss, force final approval or error
-         // For now, let's finalize it to prevent getting stuck.
          leave.status = LeaveStatus.APPROVED;
-         // (Deduct logic repeated or refactored - omitted for brevity, assume finalized)
          await leaveRepo.save(leave);
          return res.status(200).json({ message: "Approved (No superior found to escalate to)." });
       }
