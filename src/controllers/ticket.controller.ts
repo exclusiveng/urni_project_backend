@@ -65,57 +65,91 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
     const { action, contest_note } = req.body; // "ACKNOWLEDGE" or "CONTEST"
     const user = req.user!;
 
-    const ticket = await ticketRepo.findOne({ where: { id: ticketId } });
+    // Use a transaction for multi-step operations (update ticket + update user stats)
+    await AppDataSource.transaction(async (manager) => {
+      const txTicketRepo = manager.getRepository(Ticket);
+      const txUserRepo = manager.getRepository(User);
 
-    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const ticket = await txTicketRepo.findOne({ where: { id: ticketId } });
 
-    // Only the accused can respond
-    if (ticket.target_user_id !== user.id) {
-      return res.status(403).json({ message: "This ticket is not addressed to you." });
-    }
+      if (!ticket) {
+        // throw to be caught below and return appropriate status
+        throw { statusCode: 404, message: "Ticket not found" };
+      }
 
-    if (ticket.status !== TicketStatus.OPEN) {
-      return res.status(400).json({ message: "This ticket has already been processed." });
-    }
+      // Only the accused can respond
+      if (ticket.target_user_id !== user.id) {
+        throw { statusCode: 403, message: "This ticket is not addressed to you." };
+      }
 
-    // ACTION A: ACKNOWLEDGE (Accept Fault)
-    if (action === "ACKNOWLEDGE") {
+      if (ticket.status !== TicketStatus.OPEN) {
+        throw { statusCode: 400, message: "This ticket has already been processed." };
+      }
+
+      // ACTION A: ACKNOWLEDGE (Accept Fault)
+      if (action === "ACKNOWLEDGE") {
         ticket.status = TicketStatus.RESOLVED;
-        
-        // DEDUCT SCORE
-        // Fetch user fresh to ensure accuracy
-        const targetUser = await userRepo.findOne({ where: { id: user.id } });
-        if (targetUser) {
-            targetUser.stats_score = Math.max(0, targetUser.stats_score - ticket.severity); // Don't go below 0
-            await userRepo.save(targetUser);
+
+        // Fetch fresh user row within transaction
+        const targetUser = await txUserRepo.findOne({ where: { id: user.id } });
+        if (!targetUser) {
+          throw { statusCode: 404, message: "Target user not found" };
         }
 
-        await ticketRepo.save(ticket);
-        return res.status(200).json({ 
-            status: "success", 
-            message: "Ticket acknowledged. Score updated.", 
-            current_score: targetUser?.stats_score 
-        });
-    }
+        // DEDUCT SCORE (ensure not below 0)
+        const severityVal = (ticket.severity as unknown as number) || 0;
+        targetUser.stats_score = Math.max(0, (targetUser.stats_score || 0) - severityVal);
 
-    // ACTION B: CONTEST
-    if (action === "CONTEST") {
+        // Persist both updates inside the same transaction
+        await txUserRepo.save(targetUser);
+        await txTicketRepo.save(ticket);
+
+        // Attach the updated score to the result by returning it from transaction
+        (res as any).__txResult = { current_score: targetUser.stats_score };
+        return;
+      }
+
+      // ACTION B: CONTEST
+      if (action === "CONTEST") {
         if (!contest_note) {
-            return res.status(400).json({ message: "You must provide a reason/note to contest a ticket." });
+          throw { statusCode: 400, message: "You must provide a reason/note to contest a ticket." };
         }
-        
+
         ticket.status = TicketStatus.CONTESTED;
         ticket.contest_note = contest_note;
-        await ticketRepo.save(ticket);
+        await txTicketRepo.save(ticket);
 
-        return res.status(200).json({ 
-            status: "success", 
-            message: "Ticket contested. HR has been notified." 
-        });
+        (res as any).__txResult = null;
+        return;
+      }
+
+      throw { statusCode: 400, message: "Invalid action" };
+    });
+
+    // Transaction completed successfully. Read tx result (if any)
+    const txResult = (res as any).__txResult;
+
+    if (req.body.action === "ACKNOWLEDGE") {
+      return res.status(200).json({
+        status: "success",
+        message: "Ticket acknowledged. Score updated.",
+        current_score: txResult?.current_score,
+      });
     }
 
+    if (req.body.action === "CONTEST") {
+      return res.status(200).json({
+        status: "success",
+        message: "Ticket contested. HR has been notified.",
+      });
+    }
+
+    // Fallback
+    return res.status(200).json({ status: "success" });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    const status = error?.statusCode || 500;
+    const message = error?.message || error?.detail || "Internal Server Error";
+    return res.status(status).json({ message });
   }
 };
 

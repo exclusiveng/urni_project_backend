@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, Index } from "typeorm";
 import { Department } from "./Department";
 import { Branch } from "./Branch";
 
@@ -11,17 +11,18 @@ export enum UserRole {
   GENERAL_STAFF = "GENERAL_STAFF",
 }
 
+@Index("IDX_USER_EMAIL", ["email"])
 @Entity("users")
 export class User {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  // --- Personal Details ---
+  @Index({ unique: true })
+  @Column()
+  email: string;
+
   @Column()
   name: string;
-
-  @Column({ unique: true })
-  email: string;
 
   @Column({ select: false })
   password: string;

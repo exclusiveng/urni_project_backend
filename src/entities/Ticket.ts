@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
 import { User } from "./User";
 
 export enum TicketStatus {
@@ -15,6 +15,8 @@ export enum TicketSeverity {
   CRITICAL = 20 
 }
 
+@Index("IDX_TICKET_TARGET", ["target_user_id"])
+@Index("IDX_TICKET_STATUS", ["status"])
 @Entity("tickets")
 export class Ticket {
   @PrimaryGeneratedColumn("uuid")

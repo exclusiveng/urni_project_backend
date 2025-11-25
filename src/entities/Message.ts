@@ -1,6 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, Index } from "typeorm";
 import { User } from "./User";
 
+@Index("IDX_MESSAGE_SENDER", ["sender_id"])
+@Index("IDX_MESSAGE_RECEIVER", ["receiver_id"])
+@Index("IDX_MESSAGE_CREATED_AT", ["created_at"])
 @Entity("messages")
 export class Message {
   @PrimaryGeneratedColumn("uuid")

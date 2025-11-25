@@ -2,8 +2,13 @@ import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDa
 import { User } from "./User";
 
 export enum LeaveType {
-  ANNUAL = "ANNUAL",
-  SICK = "SICK",
+  LEAVE = "LEAVE",
+  MEDICAL = "MEDICAL",
+  WORK = "WORK",
+  EDUCATION = "EDUCATION",
+  MATERNITY = "MATERNITY",
+  VACATION = "VACATION",
+  PATERNITY = "PATERNITY",
   OTHERS = "OTHERS",
 }
 
