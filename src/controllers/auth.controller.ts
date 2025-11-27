@@ -27,13 +27,12 @@ const signToken = (id: string) => {
 export const register = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const { name, email, password, role } = req.body;
-    const department_id = req.body.department_id || undefined;
-    const reports_to_id = req.body.reports_to_id || undefined;
+    let department_id = req.body.department_id || undefined;
+    let reports_to_id = req.body.reports_to_id || undefined;
     const branch_id = req.body.branch_id || undefined;
     const phone = req.body.phone || undefined;
     const address = req.body.address || undefined;
     const dob = req.body.dob ? new Date(req.body.dob) : undefined;
-
 
     // 1. Check if user exists
     const existingUser = await userRepo.findOne({ where: { email } }); 
@@ -41,13 +40,28 @@ export const register = async (req: Request, res: Response): Promise<Response | 
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // 2. Validate department_id if provided
-    if (department_id) {
-      const department = await DeptRepo.findOne({ where: { id: department_id as string } }); 
-      if (!department) {
-        return res.status(400).json({ message: "Provided department does not exist." });
+    // 2. Check if this is the first user (will become CEO)
+    const userCount = await userRepo.count();
+    const isFirstUser = userCount === 0;
+    
+    let assignedRole = role || UserRole.GENERAL_STAFF;
+    
+    if (isFirstUser) {
+      // First user automatically becomes CEO
+      assignedRole = UserRole.CEO;
+      // CEO doesn't need department or superior
+      department_id = undefined;
+      reports_to_id = undefined;
+    } else {
+      // For subsequent users, validate department_id if provided
+      if (department_id) {
+        const department = await DeptRepo.findOne({ where: { id: department_id as string } }); 
+        if (!department) {
+          return res.status(400).json({ message: "Provided department does not exist." });
+        }
       }
     }
+
     // 3. Validate branch_id if provided
     if (branch_id) {
       const branch = await BranchRepo.findOne({ where: { id: branch_id } });
@@ -58,12 +72,11 @@ export const register = async (req: Request, res: Response): Promise<Response | 
 
     let profile_pic_url: string | undefined = undefined;
     if (req.file) {
-
       const imagePath = req.file.path.replace(/\\/g, "/"); 
       profile_pic_url = `${req.protocol}://${req.get("host")}/${imagePath}`;
     }
 
-    // 2. Hash password
+    // 4. Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -72,7 +85,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
       name,
       email,
       password: hashedPassword,
-      role: role || UserRole.GENERAL_STAFF,
+      role: assignedRole,
       department_id: department_id,
       reports_to_id: reports_to_id,
       branch_id: branch_id,
@@ -82,12 +95,11 @@ export const register = async (req: Request, res: Response): Promise<Response | 
       profile_pic_url: profile_pic_url,
     };
 
-    // 3. Create user
+    // 5. Create user
     const newUser = userRepo.create(newUserPayload);
-
     await userRepo.save(newUser);
 
-    // 4. Generate Token
+    // 6. Generate Token
     const token = signToken(newUser.id);
 
     // Remove password from output
