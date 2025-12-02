@@ -45,7 +45,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
 export const getMessages = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
     const user = req.user!;
-    const { contactId } = req.params; // Optional: If provided, get chat with specific person
+    const { contactId } = req.params; 
 
     // --- PAGINATION ---
     const page = parseInt(req.query.page as string) || 1;

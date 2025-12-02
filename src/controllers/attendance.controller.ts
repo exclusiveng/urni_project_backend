@@ -1,15 +1,14 @@
 import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
-import { IsNull } from "typeorm";
+import { IsNull, Between, MoreThanOrEqual } from "typeorm";
 import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
-import { User } from "../entities/User"; // Import User entity
+import { UserRole } from "../entities/User"; 
 import { AuthRequest } from "../middleware/auth.middleware";
-// import { UserRole } from "../entities/User";
 
 const attendanceRepo = AppDataSource.getRepository(Attendance);
 const branchRepo = AppDataSource.getRepository(Branch);
-const userRepo = AppDataSource.getRepository(User); // Initialize User repository
+// const userRepo = AppDataSource.getRepository(User); 
 
 // Helper: Haversine Formula to calculate distance in meters
 const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -26,10 +25,25 @@ const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number,
 
 const deg2rad = (deg: number) => deg * (Math.PI / 180);
 
+// Helper: Calculate hours between two dates
+const calculateHours = (startTime: Date, endTime: Date): number => {
+  const diffMs = endTime.getTime() - startTime.getTime();
+  const diffHours = diffMs / (1000 * 60 * 60);
+  return Math.round(diffHours * 100) / 100; // Round to 2 decimal places
+};
+
 export const clockIn = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
     const { lat, long, is_manual_override, override_reason } = req.body;
     const user = req.user!;
+
+    // 0. CEO Exemption - CEOs are not required to clock in
+    if (user.role === UserRole.CEO) {
+      return res.status(403).json({ 
+        message: "As CEO, you are exempted from clocking in.",
+        info: "Your attendance is automatically marked as present."
+      });
+    }
 
     // 1. Check if already clocked in today (prevent double entry)
     const todayStart = new Date();
@@ -53,31 +67,34 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
         return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-in." });
       }
 
-      // Fetch the user's assigned branch with its details
-      const userWithBranch = await userRepo.findOne({
-        where: { id: user.id },
-        relations: ["branch"], // Eager load the branch relation
-      });
+      // Fetch ALL branches to allow clocking in at any branch
+      const allBranches = await branchRepo.find();
 
-      if (!userWithBranch || !userWithBranch.branch) {
-        // If user is not assigned to a branch, or branch details are missing
+      if (!allBranches || allBranches.length === 0) {
         return res.status(403).json({
-          message: "You are not assigned to an office branch. Please contact an administrator or use manual override.",
+          message: "No branches are available in the system. Please contact an administrator or use manual override.",
         });
       }
 
-      const assignedBranch = userWithBranch.branch;
+      // Check if user is within range of ANY branch
+      for (const branch of allBranches) {
+        const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
+        
+        if (dist <= branch.radius_meters) {
+          validBranch = branch;
+          break; // Found a valid branch, stop searching
+        }
+      }
 
-      // Calculate the distance between the user's location and their assigned branch.
-      const dist = getDistanceFromLatLonInMeters(lat, long, assignedBranch.gps_lat, assignedBranch.gps_long);
-
-      // Check if the user is within the allowed radius of their branch.
-      if (dist <= assignedBranch.radius_meters) {
-        validBranch = assignedBranch; // The location is valid.
-      } else {
+      if (!validBranch) {
         return res.status(403).json({ 
-          message: `You are not within the allowed radius of your assigned branch (${assignedBranch.name}).`,
-          suggestion: "Please move closer to your assigned office or request a manual override."
+          message: `You are not within the allowed radius of any office branch.`,
+          suggestion: "Please move closer to an office branch or request a manual override.",
+          availableBranches: allBranches.map(b => ({
+            name: b.name,
+            address: b.address,
+            city: b.location_city
+          }))
         });
       }
     }
@@ -102,16 +119,23 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
 
     await attendanceRepo.save(attendance);
 
-    res.status(201).json({
+    return res.status(201).json({
       status: "success",
       message: is_manual_override 
         ? "Manual clock-in request submitted." 
         : `Clocked in successfully at ${validBranch?.name}`,
-      data: { attendance }
+      data: { 
+        attendance,
+        branch: validBranch ? {
+          id: validBranch.id,
+          name: validBranch.name,
+          address: validBranch.address
+        } : null
+      }
     });
 
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
   }
 };
 
@@ -121,34 +145,53 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     const user = req.user!;
     const now = new Date();
 
+    // 0. CEO Exemption - CEOs are not required to clock out
+    if (user.role === UserRole.CEO) {
+      return res.status(403).json({ 
+        message: "As CEO, you are exempted from clocking out.",
+        info: "Your attendance is automatically managed."
+      });
+    }
+
     // 1. Time Validation: Check if it's 5 PM or later
     if (now.getHours() < 17) { // 17 is 5 PM in 24-hour format
       return res.status(403).json({ message: "Clock-out is only allowed after 5:00 PM." });
     }
     
-    // 2. Location Validation: Check if user is within their branch radius
+    // 2. Location Validation: Check if user is within ANY branch radius
     if (!lat || !long) {
       return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-out." });
     }
 
-    const userWithBranch = await userRepo.findOne({
-      where: { id: user.id },
-      relations: ["branch"],
-    });
+    // Fetch ALL branches to allow clocking out at any branch
+    const allBranches = await branchRepo.find();
 
-    if (!userWithBranch || !userWithBranch.branch) {
+    if (!allBranches || allBranches.length === 0) {
       return res.status(403).json({
-        message: "You are not assigned to an office branch. Please contact an administrator.",
+        message: "No branches are available in the system. Please contact an administrator.",
       });
     }
 
-    const assignedBranch = userWithBranch.branch;
-    const dist = getDistanceFromLatLonInMeters(lat, long, assignedBranch.gps_lat, assignedBranch.gps_long);
+    // Check if user is within range of ANY branch
+    let validBranch: Branch | null = null;
+    for (const branch of allBranches) {
+      const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
+      
+      if (dist <= branch.radius_meters) {
+        validBranch = branch;
+        break;
+      }
+    }
 
-    if (dist > assignedBranch.radius_meters) {
+    if (!validBranch) {
       return res.status(403).json({ 
-        message: `You are not within the allowed radius of your assigned branch (${assignedBranch.name}) to clock out.`,
-        suggestion: "Please move closer to your assigned office branch."
+        message: `You are not within the allowed radius of any office branch to clock out.`,
+        suggestion: "Please move closer to an office branch.",
+        availableBranches: allBranches.map(b => ({
+          name: b.name,
+          address: b.address,
+          city: b.location_city
+        }))
       });
     }
 
@@ -165,30 +208,311 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
       return res.status(400).json({ message: "No active clock-in record found to clock out." });
     }
 
-    attendance.clock_out_time = new Date();
+    // 4. Calculate hours worked
+    const hoursWorked = calculateHours(attendance.clock_in_time, now);
+
+    attendance.clock_out_time = now;
+    attendance.hours_worked = hoursWorked;
     await attendanceRepo.save(attendance);
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
-      message: "Clocked out successfully.",
+      message: `Clocked out successfully at ${validBranch.name}.`,
       data: {
         start: attendance.clock_in_time,
-        end: attendance.clock_out_time
+        end: attendance.clock_out_time,
+        hours_worked: hoursWorked,
+        branch: {
+          id: validBranch.id,
+          name: validBranch.name,
+          address: validBranch.address
+        }
       }
     });
 
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Get user's own attendance metrics
+export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const user = req.user!;
+    const { startDate, endDate, period = '30', page = '1', limit = '10' } = req.query;
+
+    let dateFilter: any = {};
+    
+    if (startDate && endDate) {
+      dateFilter = Between(new Date(startDate as string), new Date(endDate as string));
+    } else {
+      // Default to last N days (default 30)
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
+      dateFilter = MoreThanOrEqual(daysAgo);
+    }
+
+    const attendanceRecords = await attendanceRepo.find({
+      where: {
+        user_id: user.id,
+        clock_in_time: dateFilter
+      },
+      relations: ["branch"],
+      order: { clock_in_time: "DESC" }
+    });
+
+    // Calculate metrics
+    const totalDays = attendanceRecords.length;
+    const totalHours = attendanceRecords.reduce((sum, record) => {
+      return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
+    }, 0);
+
+    const presentDays = attendanceRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
+    const lateDays = attendanceRecords.filter(r => r.status === AttendanceStatus.LATE).length;
+    const onLeaveDays = attendanceRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+
+    const averageHoursPerDay = totalDays > 0 ? (totalHours / totalDays).toFixed(2) : 0;
+
+    // Branch breakdown
+    const branchBreakdown: { [key: string]: { count: number; hours: number; branchName: string } } = {};
+    attendanceRecords.forEach(record => {
+      if (record.branch_id) {
+        if (!branchBreakdown[record.branch_id]) {
+          branchBreakdown[record.branch_id] = {
+            count: 0,
+            hours: 0,
+            branchName: record.branch?.name || 'Unknown'
+          };
+        }
+        branchBreakdown[record.branch_id].count++;
+        branchBreakdown[record.branch_id].hours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+      }
+    });
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        summary: {
+          totalDays,
+          period: `Last ${period} days`,
+          totalHours: totalHours.toFixed(2),
+          averageHoursPerDay,
+          presentDays,
+          lateDays,
+          onLeaveDays,
+          attendanceRate: totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(2) + '%' : '0%'
+        },
+        branchBreakdown: Object.entries(branchBreakdown).map(([branchId, data]) => ({
+          branchId,
+          branchName: data.branchName,
+          daysAttended: data.count,
+          totalHours: data.hours.toFixed(2)
+        })),
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalRecords: attendanceRecords.length
+        },
+        recentAttendance: attendanceRecords.slice(startIndex, endIndex).map(record => ({
+          id: record.id,
+          date: record.clock_in_time,
+          clockIn: record.clock_in_time,
+          clockOut: record.clock_out_time,
+          hoursWorked: record.hours_worked,
+          status: record.status,
+          branch: record.branch ? {
+            id: record.branch.id,
+            name: record.branch.name,
+            address: record.branch.address
+          } : null,
+          isManualOverride: record.is_manual_override
+        }))
+      }
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin: Get attendance metrics for all users or specific user
+export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const { userId, startDate, endDate, period = '30', departmentId, branchId, page = '1', limit = '10' } = req.query;
+
+    let dateFilter: any = {};
+    
+    if (startDate && endDate) {
+      dateFilter = Between(new Date(startDate as string), new Date(endDate as string));
+    } else {
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
+      dateFilter = MoreThanOrEqual(daysAgo);
+    }
+
+    let whereClause: any = {
+      clock_in_time: dateFilter
+    };
+
+    if (userId) {
+      whereClause.user_id = userId;
+    }
+
+    const attendanceRecords = await attendanceRepo.find({
+      where: whereClause,
+      relations: ["user", "branch", "user.department"],
+      order: { clock_in_time: "DESC" }
+    });
+
+    // Filter by department or branch if specified
+    let filteredRecords = attendanceRecords;
+    if (departmentId) {
+      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+    }
+    if (branchId) {
+      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+    }
+
+    // Calculate overall metrics
+    const totalRecords = filteredRecords.length;
+    const totalHours = filteredRecords.reduce((sum, record) => {
+      return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
+    }, 0);
+
+    const presentCount = filteredRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
+    const lateCount = filteredRecords.filter(r => r.status === AttendanceStatus.LATE).length;
+    const onLeaveCount = filteredRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+
+    // User breakdown
+    const userMetrics: { [key: string]: any } = {};
+    filteredRecords.forEach(record => {
+      if (!userMetrics[record.user_id]) {
+        userMetrics[record.user_id] = {
+          userId: record.user_id,
+          userName: record.user?.name || 'Unknown',
+          userEmail: record.user?.email || 'Unknown',
+          department: record.user?.department?.name || 'N/A',
+          totalDays: 0,
+          totalHours: 0,
+          presentDays: 0,
+          lateDays: 0,
+          onLeaveDays: 0
+        };
+      }
+      
+      userMetrics[record.user_id].totalDays++;
+      userMetrics[record.user_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+      
+      if (record.status === AttendanceStatus.PRESENT) userMetrics[record.user_id].presentDays++;
+      if (record.status === AttendanceStatus.LATE) userMetrics[record.user_id].lateDays++;
+      if (record.status === AttendanceStatus.ON_LEAVE) userMetrics[record.user_id].onLeaveDays++;
+    });
+
+    // Branch breakdown
+    const branchMetrics: { [key: string]: any } = {};
+    filteredRecords.forEach(record => {
+      if (record.branch_id) {
+        if (!branchMetrics[record.branch_id]) {
+          branchMetrics[record.branch_id] = {
+            branchId: record.branch_id,
+            branchName: record.branch?.name || 'Unknown',
+            totalAttendance: 0,
+            totalHours: 0,
+            uniqueUsers: new Set()
+          };
+        }
+        
+        branchMetrics[record.branch_id].totalAttendance++;
+        branchMetrics[record.branch_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+        branchMetrics[record.branch_id].uniqueUsers.add(record.user_id);
+      }
+    });
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+    const paginatedUserMetrics = Object.values(userMetrics).slice(startIndex, endIndex);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        overallSummary: {
+          totalRecords,
+          totalHours: totalHours.toFixed(2),
+          averageHoursPerRecord: totalRecords > 0 ? (totalHours / totalRecords).toFixed(2) : 0,
+          presentCount,
+          lateCount,
+          onLeaveCount,
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%'
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalUsers: Object.keys(userMetrics).length
+        },
+        userMetrics: paginatedUserMetrics.map((user: any) => ({
+          ...user,
+          totalHours: user.totalHours.toFixed(2),
+          averageHoursPerDay: user.totalDays > 0 ? (user.totalHours / user.totalDays).toFixed(2) : 0,
+          attendanceRate: user.totalDays > 0 ? ((user.presentDays / user.totalDays) * 100).toFixed(2) + '%' : '0%'
+        })), // Paginate the user metrics
+        branchMetrics: Object.values(branchMetrics).map((branch: any) => ({
+          branchId: branch.branchId,
+          branchName: branch.branchName,
+          totalAttendance: branch.totalAttendance,
+          totalHours: branch.totalHours.toFixed(2),
+          uniqueUsers: branch.uniqueUsers.size
+        }))
+      }
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
   }
 };
 
 // Admin: Create a Branch
-export const createBranch = async (req: Request, res: Response) => {
+export const createBranch = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const branch = branchRepo.create(req.body);
     await branchRepo.save(branch);
-    res.status(201).json({ status: "success", data: branch });
+    return res.status(201).json({ status: "success", data: branch });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Get all branches (for users to see available locations)
+export const getAllBranches = async (req: Request, res: Response): Promise<Response | void> => {
+  try {
+    const { page = '1', limit = '10' } = req.query;
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [branches, total] = await branchRepo.findAndCount({
+      select: ["id", "name", "address", "location_city", "gps_lat", "gps_long", "radius_meters"],
+      take: limitNum,
+      skip: skip,
+      order: { name: "ASC" }
+    });
+
+    return res.status(200).json({ 
+      status: "success", 
+      pagination: {
+        total,
+        page: pageNum
+      },
+      data: branches 
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
   }
 };

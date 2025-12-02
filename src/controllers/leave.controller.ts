@@ -133,7 +133,7 @@ export const getPendingApprovals = async (req: AuthRequest, res: Response) => {
         const user = req.user!;
         const requests = await leaveRepo.find({
             where: { current_approver_id: user.id, status: LeaveStatus.PENDING },
-            relations: ["user"] // See who is asking
+            relations: ["user"] 
         });
         res.status(200).json({ status: "success", data: requests });
     } catch (error: any) {

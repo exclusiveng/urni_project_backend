@@ -1,10 +1,10 @@
-import { Request, Response } from "express"; // No need for NextFunction here unless used elsewhere
+import { Request, Response } from "express"; 
 import { AppDataSource } from "../../database/data-source";
 import { User, UserRole } from "../entities/User";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Department } from "../entities/Department";
-import { Branch } from "../entities/Branch"; // Import Branch entity
+import { Branch } from "../entities/Branch"; 
 import { DeepPartial } from "typeorm";
 
 // Extend the Request type to include the 'file' property from Multer
@@ -16,7 +16,7 @@ declare module 'express' {
 
 const userRepo = AppDataSource.getRepository(User);
 const DeptRepo = AppDataSource.getRepository(Department);
-const BranchRepo = AppDataSource.getRepository(Branch); // Initialize Branch repository
+const BranchRepo = AppDataSource.getRepository(Branch); 
  
 const signToken = (id: string) => {
   return jwt.sign({ id }, process.env.JWT_SECRET!, {
@@ -121,11 +121,10 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
 
     // 1. Check if email & password exist
     if (!email || !password) {
-      return res.status(400).json({ message: "Please provide email and password" }); // Keep return here for early exit
+      return res.status(400).json({ message: "Please provide email and password" }); 
     }
 
     // 2. Check if user exists & password is correct
-    // We select password because it's hidden by default in entity
     const user = await userRepo.createQueryBuilder("user")
       .addSelect("user.password")
       .where("user.email = :email", { email })

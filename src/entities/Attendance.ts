@@ -56,6 +56,10 @@ export class Attendance {
   @JoinColumn({ name: "approved_by_id" })
   approved_by: User;
 
+  // Hours worked (calculated on clock-out)
+  @Column({ type: "decimal", precision: 5, scale: 2, nullable: true })
+  hours_worked: number;
+
   @CreateDateColumn()
   created_at: Date;
 }

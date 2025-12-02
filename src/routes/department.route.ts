@@ -13,6 +13,6 @@ router.get("/", getAllDepartments);
 router.get("/:id", getDepartmentById);
 
 // Admin Only: Create departments
-router.post("/", restrictTo(UserRole.CEO, UserRole.ADMIN, UserRole.ME_QC), createDepartment);
+router.post("/", restrictTo(UserRole.CEO, UserRole.ME_QC), createDepartment);
 
 export default router;

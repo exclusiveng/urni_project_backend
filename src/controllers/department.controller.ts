@@ -76,7 +76,7 @@ export const getDepartmentById = async (req: Request, res: Response) : Promise<R
       order: { name: "ASC" },
       take: limit,
       skip: skip,
-      select: ["id", "name", "email", "role"], // Select only the fields you need
+      select: ["id", "name", "email", "role"],
     });
 
     res.status(200).json({ 

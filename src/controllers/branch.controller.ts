@@ -76,7 +76,7 @@ export const getBranchById = async (req: Request, res: Response): Promise<Respon
       order: { name: "ASC" },
       take: limit,
       skip: skip,
-      select: ["id", "name", "email", "role"], // Select only the fields you need
+      select: ["id", "name", "email", "role"],
     });
 
     res.status(200).json({ 
@@ -145,7 +145,6 @@ export const deleteBranch = async (req: AuthRequest, res: Response): Promise<Res
 
         res.status(204).json({ status: "success", data: null });
     } catch (error: any) {
-        // This is likely hit if a foreign key constraint (employees referencing this branch) fails
         res.status(500).json({ message: "Cannot delete branch. Ensure all employees are moved to another branch first.", error: error.message });
     }
 };
