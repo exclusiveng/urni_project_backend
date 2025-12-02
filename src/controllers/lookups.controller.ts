@@ -95,6 +95,30 @@ export const getUsers = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const repo = AppDataSource.getRepository(User);
+
+    const user = await repo.findOne({
+      where: { id },
+      relations: ["department", "branch", "reportsTo"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "User not found" });
+    }
+
+    // It's crucial to never send the password hash to the client
+    user.password = undefined as any;
+
+    return res.status(200).json({ status: "success", data: user });
+
+  } catch (err: any) {
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
 /**
  * Return enum lookups as { id, name } pairs.
  * Works for UserRole, TicketSeverity, TicketStatus, AttendanceStatus
