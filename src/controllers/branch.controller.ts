@@ -136,15 +136,81 @@ export const deleteBranch = async (req: AuthRequest, res: Response): Promise<Res
     try {
         const { id } = req.params;
 
-        // NOTE: Deleting a branch will fail if there are users still referencing it
+        // Step 1: Check if the branch exists
+        const branchToDelete = await branchRepo.findOneBy({ id });
+        if (!branchToDelete) {
+            return res.status(404).json({ message: "Branch not found." });
+        }
+
+        // Step 2: Find all users in this branch
+        const usersInBranch = await userRepo.find({ where: { branch_id: id } });
+
+        // Step 3: If there are users, move them to another branch
+        let movedUsersCount = 0;
+        let targetBranch = null;
+
+        if (usersInBranch.length > 0) {
+            // Find the next available branch (first branch that isn't being deleted)
+            const availableBranches = await branchRepo.find({
+                where: {},
+                order: { created_at: "ASC" }
+            });
+
+            // Filter out the branch being deleted
+            const otherBranches = availableBranches.filter(branch => branch.id !== id);
+
+            if (otherBranches.length === 0) {
+                return res.status(400).json({ 
+                    message: "Cannot delete the last branch. At least one branch must exist to reassign employees.",
+                    usersCount: usersInBranch.length
+                });
+            }
+
+            // Use the first available branch as the target
+            targetBranch = otherBranches[0];
+
+            // Move all users to the target branch
+            await userRepo.update(
+                { branch_id: id },
+                { branch_id: targetBranch.id }
+            );
+
+            movedUsersCount = usersInBranch.length;
+        }
+
+        // Step 4: Delete the branch
         const result = await branchRepo.delete(id);
 
         if (result.affected === 0) {
-            return res.status(404).json({ message: "Branch not found or could not be deleted." });
+            return res.status(404).json({ message: "Branch could not be deleted." });
         }
 
-        res.status(204).json({ status: "success", data: null });
+        // Step 5: Return success message with details
+        const message = movedUsersCount > 0
+            ? `Branch "${branchToDelete.name}" deleted successfully. ${movedUsersCount} employee(s) moved to "${targetBranch?.name}" (${targetBranch?.location_city}).`
+            : `Branch "${branchToDelete.name}" deleted successfully. No employees were assigned to this branch.`;
+
+        res.status(200).json({ 
+            status: "success", 
+            message,
+            data: {
+                deletedBranch: {
+                    id: branchToDelete.id,
+                    name: branchToDelete.name,
+                    location_city: branchToDelete.location_city
+                },
+                movedEmployees: movedUsersCount,
+                targetBranch: targetBranch ? {
+                    id: targetBranch.id,
+                    name: targetBranch.name,
+                    location_city: targetBranch.location_city
+                } : null
+            }
+        });
     } catch (error: any) {
-        res.status(500).json({ message: "Cannot delete branch. Ensure all employees are moved to another branch first.", error: error.message });
+        res.status(500).json({ 
+            message: "An error occurred while deleting the branch.", 
+            error: error.message 
+        });
     }
 };
