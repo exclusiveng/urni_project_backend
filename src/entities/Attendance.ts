@@ -28,7 +28,7 @@ export class Attendance {
   branch: Branch;
 
   @Column({ nullable: true })
-  branch_id: string;
+  branch_id: string | null;
 
   // Time Logs
   @Column({ type: "timestamp" })
