@@ -16,12 +16,12 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
     const sender = req.user!;
 
     if (sender.id === receiver_id) {
-        return res.status(400).json({ message: "You cannot message yourself." });
+      return res.status(400).json({ message: "You cannot message yourself." });
     }
 
     const receiver = await userRepo.findOne({ where: { id: receiver_id } });
     if (!receiver) {
-        return res.status(404).json({ message: "Receiver not found." });
+      return res.status(404).json({ message: "Receiver not found." });
     }
 
     const message = messageRepo.create({
@@ -45,7 +45,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
 export const getMessages = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
     const user = req.user!;
-    const { contactId } = req.params; 
+    const { contactId } = req.params;
 
     // --- PAGINATION ---
     const page = parseInt(req.query.page as string) || 1;
@@ -59,49 +59,49 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
 
     // --- SCENARIO A: CEO (GOD MODE) ---
     if (user.role === UserRole.CEO) {
-        
-        if (contactId) {
-            // For CEO, filter by a specific user's conversations if contactId is provided
-            query.where("message.sender_id = :contactId OR message.receiver_id = :contactId", { contactId })
-                 .orWhere("message.sender_id = :contactId AND message.receiver_id = :contactId", { contactId });
-        }
-    } 
-    
+
+      if (contactId) {
+        // For CEO, filter by a specific user's conversations if contactId is provided
+        query.where("message.sender_id = :contactId OR message.receiver_id = :contactId", { contactId })
+          .orWhere("message.sender_id = :contactId AND message.receiver_id = :contactId", { contactId });
+      }
+    }
+
     // --- SCENARIO B: STANDARD USER ---
     else {
-        if (!contactId) {
-            return res.status(400).json({ message: "Please specify a user ID to fetch the conversation." });
-        }
+      if (!contactId) {
+        return res.status(400).json({ message: "Please specify a user ID to fetch the conversation." });
+      }
 
-        // Standard users can ONLY see messages they sent OR received
-        query.where(
-            new Brackets((qb) => {
-                qb.where(
-                    "(message.sender_id = :userId AND message.receiver_id = :contactId)",
-                    { userId: user.id, contactId }
-                ).orWhere(
-                    "(message.sender_id = :contactId AND message.receiver_id = :userId)",
-                    { userId: user.id, contactId }
-                );
-            })
-        );
+      // Standard users can ONLY see messages they sent OR received
+      query.where(
+        new Brackets((qb) => {
+          qb.where(
+            "(message.sender_id = :userId AND message.receiver_id = :contactId)",
+            { userId: user.id, contactId }
+          ).orWhere(
+            "(message.sender_id = :contactId AND message.receiver_id = :userId)",
+            { userId: user.id, contactId }
+          );
+        })
+      );
     }
 
     const [messages, total] = await query
-        .skip(skip)
-        .take(limit)
-        .getManyAndCount();
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
-    
-    res.status(200).json({ 
-        status: "success", 
-        pagination: {
-          totalItems: total,
-          totalPages: Math.ceil(total / limit),
-          currentPage: page,
-          limit: limit,
-        },
-        data: messages 
+
+    res.status(200).json({
+      status: "success",
+      pagination: {
+        totalItems: total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        limit: limit,
+      },
+      data: messages
     });
 
   } catch (error: any) {
@@ -111,17 +111,17 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
 
 // 3. Get Inbox (List of people I've talked to)
 export const getInbox = async (req: AuthRequest, res: Response) => {
-    try {
-        const user = req.user!;
-        const userId = user.id;
+  try {
+    const user = req.user!;
+    const userId = user.id;
 
-        // --- PAGINATION ---
-        const page = parseInt(req.query.page as string) || 1;
-        const limit = parseInt(req.query.limit as string) || 15;
-        const skip = (page - 1) * limit;
+    // --- PAGINATION ---
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 15;
+    const skip = (page - 1) * limit;
 
-        // This subquery identifies the latest message ID for each conversation.
-        const latestMessageIdsSubquery = `
+    // This subquery identifies the latest message ID for each conversation.
+    const latestMessageIdsSubquery = `
             SELECT id FROM (
                 SELECT 
                     id,
@@ -136,34 +136,34 @@ export const getInbox = async (req: AuthRequest, res: Response) => {
         `;
 
 
-        // The main query fetches the full message and contact details for each latest message.
-        const [inbox, total] = await messageRepo.createQueryBuilder("message")
-            // Use the subquery to find the latest message IDs
-            .where(`message.id IN (${latestMessageIdsSubquery})`)
-            // Pass parameters as an object for named parameters like :userId
-            .setParameters({ userId })
-            // Eagerly load both the sender and receiver for each message
-            .innerJoinAndSelect("message.sender", "sender")
-            .innerJoinAndSelect("message.receiver", "receiver")
-            .orderBy("message.created_at", "DESC")
-            .skip(skip)
-            .take(limit)
-            .getManyAndCount();
+    // The main query fetches the full message and contact details for each latest message.
+    const [inbox, total] = await messageRepo.createQueryBuilder("message")
+      // Use the subquery to find the latest message IDs
+      .where(`message.id IN (${latestMessageIdsSubquery})`)
+      // Pass parameters as an object for named parameters like :userId
+      .setParameters({ userId })
+      // Eagerly load both the sender and receiver for each message
+      .innerJoinAndSelect("message.sender", "sender")
+      .innerJoinAndSelect("message.receiver", "receiver")
+      .orderBy("message.created_at", "DESC")
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
-        res.status(200).json({ 
-            status: "success", 
-            pagination: {
-                totalItems: total,
-                totalPages: Math.ceil(total / limit),
-                currentPage: page,
-                limit: limit
-            },
-            data: inbox 
-        });
+    res.status(200).json({
+      status: "success",
+      pagination: {
+        totalItems: total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        limit: limit
+      },
+      data: inbox
+    });
 
-    } catch (error: any) {
-        res.status(500).json({ message: error.message });
-    }
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 /**

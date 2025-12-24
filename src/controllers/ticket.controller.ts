@@ -29,7 +29,7 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
         }
 
         // 2. For other roles, check their authority:
-        // CEO, ADMIN, and ME_QC roles have broad authority and can issue tickets to anyone.
+        // CEO and ME_QC roles have broad authority and can issue tickets to anyone.
         if (![UserRole.CEO, UserRole.ME_QC].includes(issuer.role)) {
             // For roles like DEPARTMENT_HEAD, they can only issue tickets to their direct subordinates.
             // This check ensures the target user reports directly to the issuer.

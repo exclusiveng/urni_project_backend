@@ -26,7 +26,7 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
       return res.status(400).json({ message: "You do not have a manager assigned to approve this request." });
     }
 
-    const initialApprover = user.reports_to_id || user.id; 
+    const initialApprover = user.reports_to_id || user.id;
 
     const leave = leaveRepo.create({
       user_id: user.id,
@@ -41,8 +41,8 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
 
     // If CEO, deduct immediately
     if (user.role === UserRole.CEO) {
-        user.leave_balance -= daysRequested;
-        await userRepo.save(user);
+      user.leave_balance -= daysRequested;
+      await userRepo.save(user);
     }
 
     await leaveRepo.save(leave);
@@ -60,9 +60,9 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
     const { action } = req.body; // "APPROVE" or "REJECT"
     const approver = req.user!;
 
-    const leave = await leaveRepo.findOne({ 
+    const leave = await leaveRepo.findOne({
       where: { id: requestId },
-      relations: ["user", "current_approver"] 
+      relations: ["user", "current_approver"]
     });
 
     if (!leave) return res.status(404).json({ message: "Leave request not found" });
@@ -105,20 +105,20 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       return res.status(200).json({ status: "success", message: "Leave request fully approved.", data: leave });
 
     } else {
-      
+
       if (!approver.reports_to_id) {
-         leave.status = LeaveStatus.APPROVED;
-         await leaveRepo.save(leave);
-         return res.status(200).json({ message: "Approved (No superior found to escalate to)." });
+        leave.status = LeaveStatus.APPROVED;
+        await leaveRepo.save(leave);
+        return res.status(200).json({ message: "Approved (No superior found to escalate to)." });
       }
 
       leave.current_approver_id = approver.reports_to_id;
       await leaveRepo.save(leave);
-      
-      return res.status(200).json({ 
-        status: "success", 
-        message: "Approved by you. Escalated to your superior for final approval.", 
-        data: leave 
+
+      return res.status(200).json({
+        status: "success",
+        message: "Approved by you. Escalated to your superior for final approval.",
+        data: leave
       });
     }
 
@@ -129,14 +129,14 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
 
 // 3. Get Requests for Me (To Approve)
 export const getPendingApprovals = async (req: AuthRequest, res: Response) => {
-    try {
-        const user = req.user!;
-        const requests = await leaveRepo.find({
-            where: { current_approver_id: user.id, status: LeaveStatus.PENDING },
-            relations: ["user"] 
-        });
-        res.status(200).json({ status: "success", data: requests });
-    } catch (error: any) {
-        res.status(500).json({ message: error.message });
-    }
+  try {
+    const user = req.user!;
+    const requests = await leaveRepo.find({
+      where: { current_approver_id: user.id, status: LeaveStatus.PENDING },
+      relations: ["user"]
+    });
+    res.status(200).json({ status: "success", data: requests });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 };
