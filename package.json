@@ -4,10 +4,14 @@
   "description": "Role-based Scheduler & HRMS with Geofencing",
   "main": "src/server.ts",
   "scripts": {
-    "start": "ts-node src/server.ts",
+    "start": "node dist/src/server.js",
+    "start:dev": "ts-node src/server.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "typeorm": "typeorm-ts-node-commonjs",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d database/data-source.ts",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d database/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d database/data-source.ts",
     "create:ceo": "ts-node src/controllers/create-ceo.ts"
   },
   "dependencies": {

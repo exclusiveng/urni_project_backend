@@ -5,16 +5,50 @@ export class InitialSchema1767163115974 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
 
-        // Enums
-        await queryRunner.query(`CREATE TYPE "users_role_enum" AS ENUM('CEO', 'ME_QC', 'ADMIN', 'DEPARTMENT_HEAD', 'GENERAL_STAFF')`);
-        await queryRunner.query(`CREATE TYPE "attendances_status_enum" AS ENUM('PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE')`);
-        await queryRunner.query(`CREATE TYPE "leave_requests_type_enum" AS ENUM('LEAVE', 'MEDICAL', 'WORK', 'EDUCATION', 'MATERNITY', 'VACATION', 'PATERNITY', 'OTHERS')`);
-        await queryRunner.query(`CREATE TYPE "leave_requests_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED')`);
-        await queryRunner.query(`CREATE TYPE "tickets_status_enum" AS ENUM('OPEN', 'RESOLVED', 'CONTESTED', 'VOIDED')`);
-
-        // Tables
+        // Enums - Check if they exist before creating
         await queryRunner.query(`
-            CREATE TABLE "branches" (
+            DO $$ BEGIN
+                CREATE TYPE "users_role_enum" AS ENUM('CEO', 'ME_QC', 'ADMIN', 'DEPARTMENT_HEAD', 'GENERAL_STAFF');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+        await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "attendances_status_enum" AS ENUM('PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+        await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "leave_requests_type_enum" AS ENUM('LEAVE', 'MEDICAL', 'WORK', 'EDUCATION', 'MATERNITY', 'VACATION', 'PATERNITY', 'OTHERS');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+        await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "leave_requests_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+        await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "tickets_status_enum" AS ENUM('OPEN', 'RESOLVED', 'CONTESTED', 'VOIDED');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+        // Tables - Check if they exist before creating
+        await queryRunner.query(`
+            CREATE TABLE IF NOT EXISTS "branches" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "name" character varying NOT NULL,
                 "location_city" character varying,
@@ -29,7 +63,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
         `);
 
         await queryRunner.query(`
-            CREATE TABLE "departments" (
+            CREATE TABLE IF NOT EXISTS "departments" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "name" character varying NOT NULL,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
@@ -40,7 +74,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
         `);
 
         await queryRunner.query(`
-            CREATE TABLE "users" (
+            CREATE TABLE IF NOT EXISTS "users" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "email" character varying NOT NULL,
                 "name" character varying NOT NULL,
@@ -66,10 +100,10 @@ export class InitialSchema1767163115974 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX "IDX_USER_EMAIL" ON "users" ("email")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_USER_EMAIL" ON "users" ("email")`);
 
         await queryRunner.query(`
-            CREATE TABLE "attendances" (
+            CREATE TABLE IF NOT EXISTS "attendances" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
                 "branch_id" uuid,
@@ -89,7 +123,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
         `);
 
         await queryRunner.query(`
-            CREATE TABLE "leave_requests" (
+            CREATE TABLE IF NOT EXISTS "leave_requests" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
                 "current_approver_id" uuid,
@@ -108,7 +142,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
         `);
 
         await queryRunner.query(`
-            CREATE TABLE "messages" (
+            CREATE TABLE IF NOT EXISTS "messages" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "sender_id" uuid NOT NULL,
                 "receiver_id" uuid NOT NULL,
@@ -121,12 +155,12 @@ export class InitialSchema1767163115974 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`);
-        await queryRunner.query(`CREATE INDEX "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`);
-        await queryRunner.query(`CREATE INDEX "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`);
 
         await queryRunner.query(`
-            CREATE TABLE "tickets" (
+            CREATE TABLE IF NOT EXISTS "tickets" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "issuer_id" uuid,
                 "target_user_id" uuid NOT NULL,
@@ -145,8 +179,8 @@ export class InitialSchema1767163115974 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX "IDX_TICKET_TARGET" ON "tickets" ("target_user_id")`);
-        await queryRunner.query(`CREATE INDEX "IDX_TICKET_STATUS" ON "tickets" ("status")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_TARGET" ON "tickets" ("target_user_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_STATUS" ON "tickets" ("status")`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {

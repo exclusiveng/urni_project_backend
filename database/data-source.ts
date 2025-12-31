@@ -19,13 +19,13 @@ export const AppDataSource = new DataSource({
     password: process.env.DB_PASSWORD || "postgres",
     database: process.env.DB_NAME || "urni_schedule",
   }),
-  // disable synchronize in production
-  synchronize: !isProd,
+  // Use synchronize for initial setup, or set RUN_MIGRATIONS=true to use migrations
+  synchronize: process.env.RUN_MIGRATIONS !== "true" && !isProd,
   logging: !isProd,
   // Entities / migrations depending on environment
-  entities: isProd ? ["dist/entities/**/*.js"] : ["src/entities/**/*.ts"],
-  migrations: isProd ? ["dist/migrations/**/*.js"] : ["src/migrations/**/*.ts"],
-  subscribers: isProd ? ["dist/subscribers/**/*.js"] : ["src/subscribers/**/*.ts"],
+  entities: isProd ? ["dist/src/entities/**/*.js"] : ["src/entities/**/*.ts"],
+  migrations: isProd ? ["dist/src/migrations/**/*.js"] : ["src/migrations/**/*.ts"],
+  subscribers: isProd ? ["dist/src/subscribers/**/*.js"] : ["src/subscribers/**/*.ts"],
   // SSL for production when using a DATABASE_URL (adjust via env var DATABASE_SSL=true)
   ...(useUrl && (process.env.DATABASE_SSL === "true" || isProd) ? {
     ssl: { rejectUnauthorized: false } as any
