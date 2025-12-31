@@ -24,6 +24,7 @@ import multer from "multer";
 // Load environment variables
 dotenv.config();
 
+// initialize express
 const app = express();
 
 // Winston logger (structured JSON logs) — declare early so all middleware can use it
