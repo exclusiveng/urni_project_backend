@@ -27,6 +27,10 @@ dotenv.config();
 // initialize express
 const app = express();
 
+// Trust the first proxy (Render)
+// This is required for express-rate-limit to work correctly behind a reverse proxy
+app.set("trust proxy", 1);
+
 // Winston logger (structured JSON logs) — declare early so all middleware can use it
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || "info",
