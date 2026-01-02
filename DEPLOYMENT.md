@@ -69,11 +69,15 @@ By default, TypeORM will **automatically create and update** your database schem
 - On subsequent deployments, schema changes are applied automatically
 - No manual migration commands needed
 
-**This is enabled by default** - just deploy and your database will be set up automatically!
+**Note for Production:**
+`synchronize` is disabled in production (`NODE_ENV=production`) to prevent data loss. 
+You **MUST** use migrations to create the database schema in production.
 
-### Using Migrations (Advanced - Optional)
+See the "Using Migrations" section below.
 
-If you prefer to use migrations instead of auto-synchronization:
+### Using Migrations (Recommended)
+
+Since `synchronize` is disabled in production, you should use migrations:
 
 1. Add this environment variable to Render:
    ```

@@ -22,6 +22,8 @@ export const AppDataSource = new DataSource({
   // Use synchronize for initial setup, or set RUN_MIGRATIONS=true to use migrations
   synchronize: process.env.RUN_MIGRATIONS !== "true" && !isProd,
   logging: !isProd,
+  // Automatically run migrations if RUN_MIGRATIONS=true
+  migrationsRun: process.env.RUN_MIGRATIONS === "true",
   // Entities / migrations depending on environment
   entities: isProd ? ["dist/src/entities/**/*.js"] : ["src/entities/**/*.ts"],
   migrations: isProd ? ["dist/src/migrations/**/*.js"] : ["src/migrations/**/*.ts"],
