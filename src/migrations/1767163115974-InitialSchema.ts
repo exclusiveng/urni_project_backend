@@ -66,10 +66,12 @@ export class InitialSchema1767163115974 implements MigrationInterface {
             CREATE TABLE IF NOT EXISTS "departments" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "name" character varying NOT NULL,
+                "head_id" uuid,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
                 CONSTRAINT "UQ_department_name" UNIQUE ("name"),
-                CONSTRAINT "PK_departments" PRIMARY KEY ("id")
+                CONSTRAINT "PK_departments" PRIMARY KEY ("id"),
+                CONSTRAINT "FK_departments_head" FOREIGN KEY ("head_id") REFERENCES "users"("id") ON DELETE SET NULL
             )
         `);
 

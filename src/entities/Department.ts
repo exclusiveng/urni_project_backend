@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from "typeorm";
 import { User } from "./User";
 
 @Entity("departments")
@@ -9,8 +9,15 @@ export class Department {
   @Column({ unique: true })
   name: string;
 
-  // We will link the Head of Dept via the User entity's role logic or a specific field later if needed.
-  // For now, a department has many employees.
+  // Department Head
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "head_id" })
+  head: User;
+
+  @Column({ nullable: true })
+  head_id: string;
+
+  // Employees in this department
   @OneToMany(() => User, (user) => user.department)
   employees: User[];
 

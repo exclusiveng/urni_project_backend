@@ -84,7 +84,7 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
     leave.approval_history.push(`Approved by ${approver.name} (${approver.role})`);
 
     // Check if Approver is a "Major Head"
-    const isMajorHead = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(approver.role);
+    const isMajorHead = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN, UserRole.DEPARTMENT_HEAD].includes(approver.role);
 
     if (isMajorHead) {
       // FINAL APPROVAL
