@@ -3,7 +3,7 @@ import { AppDataSource } from "../../database/data-source";
 import { IsNull, Between, MoreThanOrEqual } from "typeorm";
 import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
-import { UserRole } from "../entities/User"; 
+import { UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 
 const attendanceRepo = AppDataSource.getRepository(Attendance);
@@ -39,7 +39,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
 
     // 0. CEO Exemption - CEOs are not required to clock in
     if (user.role === UserRole.CEO) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         message: "As CEO, you are exempted from clocking in.",
         info: "Your attendance is automatically marked as present."
       });
@@ -48,7 +48,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
     // 1. Check if already clocked in today (prevent double entry)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    
+
     const existing = await attendanceRepo.createQueryBuilder("attendance")
       .where("attendance.user_id = :userId", { userId: user.id })
       .andWhere("attendance.clock_in_time >= :todayStart", { todayStart })
@@ -79,7 +79,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
       // Check if user is within range of ANY branch
       for (const branch of allBranches) {
         const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
-        
+
         if (dist <= branch.radius_meters) {
           validBranch = branch;
           break; // Found a valid branch, stop searching
@@ -87,7 +87,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
       }
 
       if (!validBranch) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           message: `You are not within the allowed radius of any office branch.`,
           suggestion: "Please move closer to an office branch or request a manual override.",
           availableBranches: allBranches.map(b => ({
@@ -104,7 +104,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
     let status = AttendanceStatus.PRESENT;
     // Example rule: If current time is 9:01 AM or later, mark as LATE
     if (now.getHours() > 9 || (now.getHours() === 9 && now.getMinutes() > 0)) {
-        status = AttendanceStatus.LATE;
+      status = AttendanceStatus.LATE;
     }
 
     // 4. Create Record
@@ -121,10 +121,10 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
 
     return res.status(201).json({
       status: "success",
-      message: is_manual_override 
-        ? "Manual clock-in request submitted." 
+      message: is_manual_override
+        ? "Manual clock-in request submitted."
         : `Clocked in successfully at ${validBranch?.name}`,
-      data: { 
+      data: {
         attendance,
         branch: validBranch ? {
           id: validBranch.id,
@@ -147,18 +147,13 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
 
     // 0. CEO Exemption - CEOs are not required to clock out
     if (user.role === UserRole.CEO) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         message: "As CEO, you are exempted from clocking out.",
         info: "Your attendance is automatically managed."
       });
     }
 
-    // 1. Time Validation: Check if it's 5 PM or later
-    if (now.getHours() < 17) { // 17 is 5 PM in 24-hour format
-      return res.status(403).json({ message: "Clock-out is only allowed after 5:00 PM." });
-    }
-    
-    // 2. Location Validation: Check if user is within ANY branch radius
+    // 1. Location Validation: Check if user is within ANY branch radius
     if (!lat || !long) {
       return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-out." });
     }
@@ -176,7 +171,7 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     let validBranch: Branch | null = null;
     for (const branch of allBranches) {
       const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
-      
+
       if (dist <= branch.radius_meters) {
         validBranch = branch;
         break;
@@ -184,7 +179,7 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     }
 
     if (!validBranch) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         message: `You are not within the allowed radius of any office branch to clock out.`,
         suggestion: "Please move closer to an office branch.",
         availableBranches: allBranches.map(b => ({
@@ -195,12 +190,12 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
       });
     }
 
-    // 3. Find the active session for today that hasn't been clocked out
+    // 2. Find the active session for today that hasn't been clocked out
     const attendance = await attendanceRepo.findOne({
-      where: { 
-        user_id: user.id, 
+      where: {
+        user_id: user.id,
         clock_out_time: IsNull()
-      }, 
+      },
       order: { clock_in_time: "DESC" }
     });
 
@@ -208,8 +203,15 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
       return res.status(400).json({ message: "No active clock-in record found to clock out." });
     }
 
-    // 4. Calculate hours worked
+    // 3. Calculate hours worked
     const hoursWorked = calculateHours(attendance.clock_in_time, now);
+
+    // 4. Check for early exit (before 4:00 PM)
+    // Only mark as EARLY_EXIT if they weren't already LATE
+    // Priority: LATE > EARLY_EXIT > PRESENT
+    if (now.getHours() < 16 && attendance.status !== AttendanceStatus.LATE) {
+      attendance.status = AttendanceStatus.EARLY_EXIT;
+    }
 
     attendance.clock_out_time = now;
     attendance.hours_worked = hoursWorked;
@@ -222,6 +224,7 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
         start: attendance.clock_in_time,
         end: attendance.clock_out_time,
         hours_worked: hoursWorked,
+        attendanceStatus: attendance.status,
         branch: {
           id: validBranch.id,
           name: validBranch.name,
@@ -242,7 +245,7 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
     const { startDate, endDate, period = '30', page = '1', limit = '10' } = req.query;
 
     let dateFilter: any = {};
-    
+
     if (startDate && endDate) {
       dateFilter = Between(new Date(startDate as string), new Date(endDate as string));
     } else {
@@ -270,6 +273,7 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
     const presentDays = attendanceRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
     const lateDays = attendanceRecords.filter(r => r.status === AttendanceStatus.LATE).length;
     const onLeaveDays = attendanceRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+    const earlyExitDays = attendanceRecords.filter(r => r.status === AttendanceStatus.EARLY_EXIT).length;
 
     const averageHoursPerDay = totalDays > 0 ? (totalHours / totalDays).toFixed(2) : 0;
 
@@ -305,6 +309,7 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
           presentDays,
           lateDays,
           onLeaveDays,
+          earlyExitDays,
           attendanceRate: totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(2) + '%' : '0%'
         },
         branchBreakdown: Object.entries(branchBreakdown).map(([branchId, data]) => ({
@@ -346,7 +351,7 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
     const { userId, startDate, endDate, period = '30', departmentId, branchId, page = '1', limit = '10' } = req.query;
 
     let dateFilter: any = {};
-    
+
     if (startDate && endDate) {
       dateFilter = Between(new Date(startDate as string), new Date(endDate as string));
     } else {
@@ -387,6 +392,7 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
     const presentCount = filteredRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
     const lateCount = filteredRecords.filter(r => r.status === AttendanceStatus.LATE).length;
     const onLeaveCount = filteredRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+    const earlyExitCount = filteredRecords.filter(r => r.status === AttendanceStatus.EARLY_EXIT).length;
 
     // User breakdown
     const userMetrics: { [key: string]: any } = {};
@@ -401,16 +407,18 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
           totalHours: 0,
           presentDays: 0,
           lateDays: 0,
-          onLeaveDays: 0
+          onLeaveDays: 0,
+          earlyExitDays: 0
         };
       }
-      
+
       userMetrics[record.user_id].totalDays++;
       userMetrics[record.user_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
-      
+
       if (record.status === AttendanceStatus.PRESENT) userMetrics[record.user_id].presentDays++;
       if (record.status === AttendanceStatus.LATE) userMetrics[record.user_id].lateDays++;
       if (record.status === AttendanceStatus.ON_LEAVE) userMetrics[record.user_id].onLeaveDays++;
+      if (record.status === AttendanceStatus.EARLY_EXIT) userMetrics[record.user_id].earlyExitDays++;
     });
 
     // Branch breakdown
@@ -426,7 +434,7 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
             uniqueUsers: new Set()
           };
         }
-        
+
         branchMetrics[record.branch_id].totalAttendance++;
         branchMetrics[record.branch_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
         branchMetrics[record.branch_id].uniqueUsers.add(record.user_id);
@@ -449,6 +457,7 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
           presentCount,
           lateCount,
           onLeaveCount,
+          earlyExitCount,
           punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%'
         },
         pagination: {
@@ -504,14 +513,387 @@ export const getAllBranches = async (req: Request, res: Response): Promise<Respo
       order: { name: "ASC" }
     });
 
-    return res.status(200).json({ 
-      status: "success", 
+    return res.status(200).json({
+      status: "success",
       pagination: {
         total,
         page: pageNum
       },
-      data: branches 
+      data: branches
     });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin/ME_QC: Get Daily Attendance Metrics
+export const getDailyMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const { date, userId, departmentId, branchId, page = '1', limit = '20' } = req.query;
+
+    // Default to today if no date is provided
+    const targetDate = date ? new Date(date as string) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let whereClause: any = {
+      clock_in_time: Between(startOfDay, endOfDay)
+    };
+
+    if (userId) {
+      whereClause.user_id = userId;
+    }
+
+    const attendanceRecords = await attendanceRepo.find({
+      where: whereClause,
+      relations: ["user", "branch", "user.department"],
+      order: { clock_in_time: "ASC" }
+    });
+
+    // Filter by department or branch if specified
+    let filteredRecords = attendanceRecords;
+    if (departmentId) {
+      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+    }
+    if (branchId) {
+      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+    }
+
+    // Calculate metrics
+    const totalRecords = filteredRecords.length;
+    const totalHours = filteredRecords.reduce((sum, record) => {
+      return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
+    }, 0);
+
+    const presentCount = filteredRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
+    const lateCount = filteredRecords.filter(r => r.status === AttendanceStatus.LATE).length;
+    const onLeaveCount = filteredRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+    const absentCount = filteredRecords.filter(r => r.status === AttendanceStatus.ABSENT).length;
+    const earlyExitCount = filteredRecords.filter(r => r.status === AttendanceStatus.EARLY_EXIT).length;
+
+    // Pagination
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+    const paginatedRecords = filteredRecords.slice(startIndex, endIndex);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        date: targetDate.toISOString().split('T')[0],
+        summary: {
+          totalEmployees: totalRecords,
+          totalHours: totalHours.toFixed(2),
+          averageHours: totalRecords > 0 ? (totalHours / totalRecords).toFixed(2) : 0,
+          presentCount,
+          lateCount,
+          onLeaveCount,
+          absentCount,
+          earlyExitCount,
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%'
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalRecords: filteredRecords.length,
+          totalPages: Math.ceil(filteredRecords.length / limitNum)
+        },
+        records: paginatedRecords.map(record => ({
+          id: record.id,
+          userId: record.user_id,
+          userName: record.user?.name || 'Unknown',
+          userEmail: record.user?.email || 'Unknown',
+          department: record.user?.department?.name || 'N/A',
+          branch: record.branch?.name || 'N/A',
+          clockIn: record.clock_in_time,
+          clockOut: record.clock_out_time,
+          hoursWorked: record.hours_worked ? parseFloat(record.hours_worked.toString()).toFixed(2) : '0.00',
+          status: record.status,
+          isManualOverride: record.is_manual_override,
+          overrideReason: record.override_reason
+        }))
+      }
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin/ME_QC: Get Weekly Attendance Metrics
+export const getWeeklyMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const { weekStart, userId, departmentId, branchId, page = '1', limit = '20' } = req.query;
+
+    // Calculate week start and end
+    let startOfWeek: Date;
+    if (weekStart) {
+      startOfWeek = new Date(weekStart as string);
+    } else {
+      // Default to current week (Monday to Sunday)
+      const today = new Date();
+      const dayOfWeek = today.getDay();
+      const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Adjust to Monday
+      startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() + diff);
+    }
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    let whereClause: any = {
+      clock_in_time: Between(startOfWeek, endOfWeek)
+    };
+
+    if (userId) {
+      whereClause.user_id = userId;
+    }
+
+    const attendanceRecords = await attendanceRepo.find({
+      where: whereClause,
+      relations: ["user", "branch", "user.department"],
+      order: { clock_in_time: "DESC" }
+    });
+
+    // Filter by department or branch if specified
+    let filteredRecords = attendanceRecords;
+    if (departmentId) {
+      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+    }
+    if (branchId) {
+      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+    }
+
+    // Calculate overall metrics
+    const totalRecords = filteredRecords.length;
+    const totalHours = filteredRecords.reduce((sum, record) => {
+      return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
+    }, 0);
+
+    const presentCount = filteredRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
+    const lateCount = filteredRecords.filter(r => r.status === AttendanceStatus.LATE).length;
+    const onLeaveCount = filteredRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+    const earlyExitCount = filteredRecords.filter(r => r.status === AttendanceStatus.EARLY_EXIT).length;
+
+    // User breakdown with aggregated weekly data
+    const userMetrics: { [key: string]: any } = {};
+    filteredRecords.forEach(record => {
+      if (!userMetrics[record.user_id]) {
+        userMetrics[record.user_id] = {
+          userId: record.user_id,
+          userName: record.user?.name || 'Unknown',
+          userEmail: record.user?.email || 'Unknown',
+          department: record.user?.department?.name || 'N/A',
+          totalDays: 0,
+          totalHours: 0,
+          presentDays: 0,
+          lateDays: 0,
+          onLeaveDays: 0,
+          earlyExitDays: 0
+        };
+      }
+
+      userMetrics[record.user_id].totalDays++;
+      userMetrics[record.user_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+
+      if (record.status === AttendanceStatus.PRESENT) userMetrics[record.user_id].presentDays++;
+      if (record.status === AttendanceStatus.LATE) userMetrics[record.user_id].lateDays++;
+      if (record.status === AttendanceStatus.ON_LEAVE) userMetrics[record.user_id].onLeaveDays++;
+      if (record.status === AttendanceStatus.EARLY_EXIT) userMetrics[record.user_id].earlyExitDays++;
+    });
+
+    // Pagination for user metrics
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const userMetricsArray = Object.values(userMetrics);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+    const paginatedUserMetrics = userMetricsArray.slice(startIndex, endIndex);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        weekStart: startOfWeek.toISOString().split('T')[0],
+        weekEnd: endOfWeek.toISOString().split('T')[0],
+        summary: {
+          totalRecords,
+          totalHours: totalHours.toFixed(2),
+          averageHoursPerRecord: totalRecords > 0 ? (totalHours / totalRecords).toFixed(2) : 0,
+          presentCount,
+          lateCount,
+          onLeaveCount,
+          earlyExitCount,
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
+          uniqueEmployees: Object.keys(userMetrics).length
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalUsers: userMetricsArray.length,
+          totalPages: Math.ceil(userMetricsArray.length / limitNum)
+        },
+        userMetrics: paginatedUserMetrics.map((user: any) => ({
+          ...user,
+          totalHours: user.totalHours.toFixed(2),
+          averageHoursPerDay: user.totalDays > 0 ? (user.totalHours / user.totalDays).toFixed(2) : 0,
+          attendanceRate: user.totalDays > 0 ? ((user.presentDays / user.totalDays) * 100).toFixed(2) + '%' : '0%'
+        }))
+      }
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin/ME_QC: Get Monthly Attendance Metrics
+export const getMonthlyMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const { year, month, userId, departmentId, branchId, page = '1', limit = '20' } = req.query;
+
+    // Calculate month start and end
+    const currentDate = new Date();
+    const targetYear = year ? parseInt(year as string) : currentDate.getFullYear();
+    const targetMonth = month ? parseInt(month as string) - 1 : currentDate.getMonth(); // month is 0-indexed
+
+    const startOfMonth = new Date(targetYear, targetMonth, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
+
+    let whereClause: any = {
+      clock_in_time: Between(startOfMonth, endOfMonth)
+    };
+
+    if (userId) {
+      whereClause.user_id = userId;
+    }
+
+    const attendanceRecords = await attendanceRepo.find({
+      where: whereClause,
+      relations: ["user", "branch", "user.department"],
+      order: { clock_in_time: "DESC" }
+    });
+
+    // Filter by department or branch if specified
+    let filteredRecords = attendanceRecords;
+    if (departmentId) {
+      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+    }
+    if (branchId) {
+      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+    }
+
+    // Calculate overall metrics
+    const totalRecords = filteredRecords.length;
+    const totalHours = filteredRecords.reduce((sum, record) => {
+      return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
+    }, 0);
+
+    const presentCount = filteredRecords.filter(r => r.status === AttendanceStatus.PRESENT).length;
+    const lateCount = filteredRecords.filter(r => r.status === AttendanceStatus.LATE).length;
+    const onLeaveCount = filteredRecords.filter(r => r.status === AttendanceStatus.ON_LEAVE).length;
+    const earlyExitCount = filteredRecords.filter(r => r.status === AttendanceStatus.EARLY_EXIT).length;
+
+    // User breakdown with aggregated monthly data
+    const userMetrics: { [key: string]: any } = {};
+    filteredRecords.forEach(record => {
+      if (!userMetrics[record.user_id]) {
+        userMetrics[record.user_id] = {
+          userId: record.user_id,
+          userName: record.user?.name || 'Unknown',
+          userEmail: record.user?.email || 'Unknown',
+          department: record.user?.department?.name || 'N/A',
+          totalDays: 0,
+          totalHours: 0,
+          presentDays: 0,
+          lateDays: 0,
+          onLeaveDays: 0,
+          earlyExitDays: 0
+        };
+      }
+
+      userMetrics[record.user_id].totalDays++;
+      userMetrics[record.user_id].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+
+      if (record.status === AttendanceStatus.PRESENT) userMetrics[record.user_id].presentDays++;
+      if (record.status === AttendanceStatus.LATE) userMetrics[record.user_id].lateDays++;
+      if (record.status === AttendanceStatus.ON_LEAVE) userMetrics[record.user_id].onLeaveDays++;
+      if (record.status === AttendanceStatus.EARLY_EXIT) userMetrics[record.user_id].earlyExitDays++;
+    });
+
+    // Department breakdown
+    const departmentMetrics: { [key: string]: any } = {};
+    filteredRecords.forEach(record => {
+      const deptId = record.user?.department?.id || 'N/A';
+      const deptName = record.user?.department?.name || 'N/A';
+
+      if (!departmentMetrics[deptId]) {
+        departmentMetrics[deptId] = {
+          departmentId: deptId,
+          departmentName: deptName,
+          totalAttendance: 0,
+          totalHours: 0,
+          uniqueUsers: new Set()
+        };
+      }
+
+      departmentMetrics[deptId].totalAttendance++;
+      departmentMetrics[deptId].totalHours += record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0;
+      departmentMetrics[deptId].uniqueUsers.add(record.user_id);
+    });
+
+    // Pagination for user metrics
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const userMetricsArray = Object.values(userMetrics);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+    const paginatedUserMetrics = userMetricsArray.slice(startIndex, endIndex);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        month: `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`,
+        monthStart: startOfMonth.toISOString().split('T')[0],
+        monthEnd: endOfMonth.toISOString().split('T')[0],
+        summary: {
+          totalRecords,
+          totalHours: totalHours.toFixed(2),
+          averageHoursPerRecord: totalRecords > 0 ? (totalHours / totalRecords).toFixed(2) : 0,
+          presentCount,
+          lateCount,
+          onLeaveCount,
+          earlyExitCount,
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
+          uniqueEmployees: Object.keys(userMetrics).length
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalUsers: userMetricsArray.length,
+          totalPages: Math.ceil(userMetricsArray.length / limitNum)
+        },
+        userMetrics: paginatedUserMetrics.map((user: any) => ({
+          ...user,
+          totalHours: user.totalHours.toFixed(2),
+          averageHoursPerDay: user.totalDays > 0 ? (user.totalHours / user.totalDays).toFixed(2) : 0,
+          attendanceRate: user.totalDays > 0 ? ((user.presentDays / user.totalDays) * 100).toFixed(2) + '%' : '0%'
+        })),
+        departmentMetrics: Object.values(departmentMetrics).map((dept: any) => ({
+          departmentId: dept.departmentId,
+          departmentName: dept.departmentName,
+          totalAttendance: dept.totalAttendance,
+          totalHours: dept.totalHours.toFixed(2),
+          uniqueUsers: dept.uniqueUsers.size,
+          averageHoursPerUser: dept.uniqueUsers.size > 0 ? (dept.totalHours / dept.uniqueUsers.size).toFixed(2) : 0
+        }))
+      }
+    });
+
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }

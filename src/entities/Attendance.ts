@@ -6,7 +6,8 @@ export enum AttendanceStatus {
   PRESENT = "PRESENT",
   LATE = "LATE",
   ABSENT = "ABSENT",
-  ON_LEAVE = "ON_LEAVE"
+  ON_LEAVE = "ON_LEAVE",
+  EARLY_EXIT = "EARLY_EXIT"
 }
 
 @Entity("attendances")
