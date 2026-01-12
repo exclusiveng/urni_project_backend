@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
+import { Between, IsNull, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../../database/data-source";
-import { IsNull, Between, MoreThanOrEqual } from "typeorm";
 import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
 import { UserRole } from "../entities/User";
@@ -30,6 +30,47 @@ const calculateHours = (startTime: Date, endTime: Date): number => {
   const diffMs = endTime.getTime() - startTime.getTime();
   const diffHours = diffMs / (1000 * 60 * 60);
   return Math.round(diffHours * 100) / 100; // Round to 2 decimal places
+};
+
+// Check current attendance status (clocked in or not)
+export const getAttendanceStatus = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const user = req.user!;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // Find the latest record for today
+    const attendance = await attendanceRepo.findOne({
+      where: {
+        user_id: user.id,
+        clock_in_time: MoreThanOrEqual(todayStart)
+      },
+      order: { clock_in_time: "DESC" }
+    });
+
+    if (!attendance) {
+      return res.status(200).json({
+        status: "success",
+        data: { isClockedIn: false }
+      });
+    }
+
+    // If there is no clock_out_time, they are currently clocked in
+    const isClockedIn = !attendance.clock_out_time;
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        isClockedIn,
+        clockInTime: attendance.clock_in_time,
+        clockOutTime: attendance.clock_out_time,
+        attendanceId: attendance.id
+      }
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 export const clockIn = async (req: AuthRequest, res: Response): Promise<Response | void> => {

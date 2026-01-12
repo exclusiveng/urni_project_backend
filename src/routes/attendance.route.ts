@@ -4,14 +4,15 @@ import {
   clockOut,
   createBranch,
   getAllBranches,
-  getMyAttendanceMetrics,
   getAttendanceMetrics,
+  getAttendanceStatus,
   getDailyMetrics,
-  getWeeklyMetrics,
-  getMonthlyMetrics
+  getMonthlyMetrics,
+  getMyAttendanceMetrics,
+  getWeeklyMetrics
 } from "../controllers/attendance.controller";
-import { protect, restrictTo } from "../middleware/auth.middleware";
 import { UserRole } from "../entities/User";
+import { protect, restrictTo } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use(protect);
 // User attendance actions
 router.post("/clock-in", clockIn);
 router.post("/clock-out", clockOut);
+router.get("/status", getAttendanceStatus);
 
 // Get all branches (available to all authenticated users)
 router.get("/branches", getAllBranches);
