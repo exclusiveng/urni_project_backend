@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
-import { Department } from "../entities/Department";
-import { Branch } from "../entities/Branch";
-import { User, UserRole } from "../entities/User";
-import { TicketSeverity, TicketStatus } from "../entities/Ticket";
 import { AttendanceStatus } from "../entities/Attendance";
+import { Branch } from "../entities/Branch";
+import { Department } from "../entities/Department";
+import { TicketSeverity, TicketStatus } from "../entities/Ticket";
+import { User, UserRole } from "../entities/User";
 
 /**
  * Helper to parse pagination & search params
@@ -90,6 +90,30 @@ export const getUsers = async (req: Request, res: Response) => {
       total,
       data: rows,
     });
+  } catch (err: any) {
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+export const getMe = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ status: "error", message: "Not authenticated" });
+    }
+
+    const repo = AppDataSource.getRepository(User);
+    const user = await repo.findOne({
+      where: { id: userId },
+      relations: ["department", "branch", "reportsTo"],
+    });
+
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "User not found" });
+    }
+
+    user.password = undefined as any;
+    return res.status(200).json({ status: "success", data: user });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }

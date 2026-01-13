@@ -1,13 +1,14 @@
 import express from "express";
 import {
-  getDepartments,
+  getAttendanceStatuses,
   getBranches,
-  getUsers,
-  getUserById,
+  getDepartments,
+  getMe,
   getRoles,
   getTicketSeverities,
   getTicketStatuses,
-  getAttendanceStatuses,
+  getUserById,
+  getUsers,
 } from "../controllers/lookups.controller";
 import { protect } from "../middleware/auth.middleware";
 
@@ -19,15 +20,16 @@ const router = express.Router();
 router.use(protect); // Protect all routes below
 // Protected endpoints returning only { id, name } (or similar) and paginated where applicable.
 // Query params: ?page=1&limit=10&q=search
-router.get("/departments",  getDepartments);
-router.get("/branches",  getBranches);
-router.get("/users",  getUsers);
-router.get("/users/:id",  getUserById);
+router.get("/departments", getDepartments);
+router.get("/branches", getBranches);
+router.get("/users", getUsers);
+router.get("/users/me", getMe);
+router.get("/users/:id", getUserById);
 
 // Enum/lookups
-router.get("/roles",  getRoles);
-router.get("/ticket-severities",  getTicketSeverities);
-router.get("/ticket-statuses",  getTicketStatuses);
-router.get("/attendance-statuses",  getAttendanceStatuses);
+router.get("/roles", getRoles);
+router.get("/ticket-severities", getTicketSeverities);
+router.get("/ticket-statuses", getTicketStatuses);
+router.get("/attendance-statuses", getAttendanceStatuses);
 
 export default router;
