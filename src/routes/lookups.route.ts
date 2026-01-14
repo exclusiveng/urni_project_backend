@@ -2,6 +2,7 @@ import express from "express";
 import {
   getAttendanceStatuses,
   getBranches,
+  getBranchLocations,
   getDepartments,
   getMe,
   getRoles,
@@ -22,6 +23,7 @@ router.use(protect); // Protect all routes below
 // Query params: ?page=1&limit=10&q=search
 router.get("/departments", getDepartments);
 router.get("/branches", getBranches);
+router.get("/branches/locations", getBranchLocations); // Optimized for geofencing/caching
 router.get("/users", getUsers);
 router.get("/users/me", getMe);
 router.get("/users/:id", getUserById);
