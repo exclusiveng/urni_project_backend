@@ -140,3 +140,33 @@ export const getPendingApprovals = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// 4. Get My Requests (History)
+export const getMyRequests = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const [requests, total] = await leaveRepo.findAndCount({
+      where: { user_id: user.id },
+      order: { created_at: "DESC" },
+      skip,
+      take: limit
+    });
+
+    res.status(200).json({
+      status: "success",
+      data: requests,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
