@@ -105,15 +105,21 @@ export const getMe = async (req: any, res: Response) => {
     const repo = AppDataSource.getRepository(User);
     const user = await repo.findOne({
       where: { id: userId },
-      relations: ["department", "branch", "reportsTo"],
+      relations: ["department", "branch", "reportsTo", "subordinates"],
     });
 
     if (!user) {
       return res.status(404).json({ status: "error", message: "User not found" });
     }
 
+    const isManager = (user.subordinates && user.subordinates.length > 0) || user.role !== UserRole.GENERAL_STAFF;
+
     user.password = undefined as any;
-    return res.status(200).json({ status: "success", data: user });
+    // We don't want to send all subordinate objects, just the flag
+    const userData = { ...user, is_manager: isManager };
+    delete (userData as any).subordinates;
+
+    return res.status(200).json({ status: "success", data: userData });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }

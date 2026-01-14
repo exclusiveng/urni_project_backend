@@ -1,11 +1,13 @@
 import { Response } from "express";
 import { AppDataSource } from "../../database/data-source";
+import { Department } from "../entities/Department";
 import { LeaveRequest, LeaveStatus } from "../entities/LeaveRequest";
 import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 
 const leaveRepo = AppDataSource.getRepository(LeaveRequest);
 const userRepo = AppDataSource.getRepository(User);
+const deptRepo = AppDataSource.getRepository(Department);
 
 // 1. Submit a Request
 export const requestLeave = async (req: AuthRequest, res: Response): Promise<Response | void> => {
@@ -22,11 +24,33 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
       return res.status(400).json({ message: `Insufficient leave balance. You have ${user.leave_balance} days left.` });
     }
 
-    if (!user.reports_to_id && user.role !== UserRole.CEO) {
-      return res.status(400).json({ message: "You do not have a manager assigned to approve this request." });
+    let initialApprover = user.reports_to_id;
+
+    // Logic: If no direct manager, check if department has a head
+    if (!initialApprover && user.role !== UserRole.CEO) {
+      if (user.department_id) {
+        const dept = await deptRepo.findOne({ where: { id: user.department_id } });
+
+        if (dept && dept.head_id) {
+          // If the requester is the department head, they must report to someone else (e.g., CEO)
+          if (dept.head_id !== user.id) {
+            initialApprover = dept.head_id;
+          }
+        }
+      }
     }
 
-    const initialApprover = user.reports_to_id || user.id;
+    // Final validation before creating
+    if (!initialApprover && user.role !== UserRole.CEO) {
+      return res.status(400).json({
+        message: "No approval path found. Please contact HR to assign a manager or department head to your profile."
+      });
+    }
+
+    // CEO reports to themselves but gets auto-approved
+    if (user.role === UserRole.CEO) {
+      initialApprover = user.id;
+    }
 
     const leave = leaveRepo.create({
       user_id: user.id,
