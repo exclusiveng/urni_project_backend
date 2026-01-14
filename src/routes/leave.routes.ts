@@ -16,6 +16,6 @@ router.get("/", getMyRequests);
 router.get("/pending", getPendingApprovals);
 
 // Managers: Approve/Reject
-router.put("/:requestId/respond", respondToLeave);
+router.post("/:requestId/respond", respondToLeave);
 
 export default router;

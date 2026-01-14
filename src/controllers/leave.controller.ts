@@ -41,9 +41,9 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
     }
 
     // Final validation before creating
-    if (!initialApprover && user.role !== UserRole.CEO) {
+    if ((!initialApprover || initialApprover === user.id) && user.role !== UserRole.CEO) {
       return res.status(400).json({
-        message: "No approval path found. Please contact HR to assign a manager or department head to your profile."
+        message: "No valid approval path found. Your profile might be incorrectly configured (e.g., reporting to yourself). Please contact HR."
       });
     }
 
@@ -80,16 +80,24 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
 // 2. Approve / Reject Logic (Recursive)
 export const respondToLeave = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
-    const { requestId } = req.params;
-    const { action } = req.body; // "APPROVE" or "REJECT"
+    const requestId = req.params.requestId;
+    const action = req.body.action?.toUpperCase(); // Normalize to "APPROVE" or "REJECT"
     const approver = req.user!;
+
+    if (!action || !["APPROVE", "REJECT"].includes(action)) {
+      return res.status(400).json({ message: "Invalid action. Use APPROVE or REJECT." });
+    }
 
     const leave = await leaveRepo.findOne({
       where: { id: requestId },
-      relations: ["user", "current_approver"]
+      relations: ["user"]
     });
 
     if (!leave) return res.status(404).json({ message: "Leave request not found" });
+
+    if (leave.status !== LeaveStatus.PENDING) {
+      return res.status(400).json({ message: `This request has already been ${leave.status.toLowerCase()}.` });
+    }
 
     // Security: Ensure the person acting is the assigned current_approver
     if (leave.current_approver_id !== approver.id && approver.role !== UserRole.CEO) {
