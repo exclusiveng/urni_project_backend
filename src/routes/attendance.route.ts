@@ -34,11 +34,11 @@ router.get("/my-metrics", getMyAttendanceMetrics);
 router.post("/branches", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), createBranch);
 
 // Admin/ME_QC: Get attendance metrics (with filters)
-router.get("/metrics", restrictTo(UserRole.ME_QC, UserRole.CEO), getAttendanceMetrics);
+router.get("/metrics", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getAttendanceMetrics);
 
 // Admin/ME_QC: Get daily, weekly, and monthly metrics
-router.get("/metrics/daily", restrictTo(UserRole.ME_QC, UserRole.CEO), getDailyMetrics);
-router.get("/metrics/weekly", restrictTo(UserRole.ME_QC, UserRole.CEO), getWeeklyMetrics);
-router.get("/metrics/monthly", restrictTo(UserRole.ME_QC, UserRole.CEO), getMonthlyMetrics);
+router.get("/metrics/daily", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getDailyMetrics);
+router.get("/metrics/weekly", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getWeeklyMetrics);
+router.get("/metrics/monthly", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getMonthlyMetrics);
 
 export default router;
