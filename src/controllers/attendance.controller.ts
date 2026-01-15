@@ -143,8 +143,12 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
     // 3. Determine Status (Simple logic: Late if after 9:00 AM)
     const now = new Date();
     let status = AttendanceStatus.PRESENT;
-    // Example rule: If current time is 9:01 AM or later, mark as LATE
-    if (now.getHours() > 9 || (now.getHours() === 9 && now.getMinutes() > 0)) {
+    // Use UTC hours for consistent timezone handling.
+    // Nigeria (WAT) is UTC+1. So, 9:00 AM WAT is 8:00 AM UTC.
+    // Late if after 9:00 AM WAT, which is 8:00 AM UTC.
+    const utcHour = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    if (utcHour > 8 || (utcHour === 8 && utcMinutes > 0)) {
       status = AttendanceStatus.LATE;
     }
 
@@ -247,10 +251,13 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     // 3. Calculate hours worked
     const hoursWorked = calculateHours(attendance.clock_in_time, now);
 
-    // 4. Check for early exit (before 4:00 PM)
+    // 4. Check for early exit (before 5:00 PM)
     // Only mark as EARLY_EXIT if they weren't already LATE
-    // Priority: LATE > EARLY_EXIT > PRESENT
-    if (now.getHours() < 16 && attendance.status !== AttendanceStatus.LATE) {
+    // Priority: LATE > EARLY_EXIT > PRESENT.
+    // Use UTC hours for consistent timezone handling.
+    // 5:00 PM (17:00) in Nigeria (WAT, UTC+1) is 4:00 PM (16:00) UTC.
+    const clockOutUtcHour = now.getUTCHours();
+    if (clockOutUtcHour < 16 && attendance.status !== AttendanceStatus.LATE) {
       attendance.status = AttendanceStatus.EARLY_EXIT;
     }
 
