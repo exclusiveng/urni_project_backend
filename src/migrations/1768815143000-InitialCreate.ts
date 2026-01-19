@@ -1,14 +1,16 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class InitialSchema1767163115974 implements MigrationInterface {
+export class InitialCreate1768815143000 implements MigrationInterface {
+    name = 'InitialCreate1768815143000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        // 1. Extensions
         await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
 
-        // Enums - Check if they exist before creating
+        // 2. Enums
         await queryRunner.query(`
             DO $$ BEGIN
-                CREATE TYPE "users_role_enum" AS ENUM('CEO', 'ME_QC', 'ADMIN', 'DEPARTMENT_HEAD', 'GENERAL_STAFF');
+                CREATE TYPE "users_role_enum" AS ENUM('CEO', 'ME_QC', 'ADMIN', 'DEPARTMENT_HEAD', 'GENERAL_STAFF', 'CORPER', 'INTERN');
             EXCEPTION
                 WHEN duplicate_object THEN null;
             END $$;
@@ -16,7 +18,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
 
         await queryRunner.query(`
             DO $$ BEGIN
-                CREATE TYPE "attendances_status_enum" AS ENUM('PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE');
+                CREATE TYPE "attendances_status_enum" AS ENUM('PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE', 'EARLY_EXIT');
             EXCEPTION
                 WHEN duplicate_object THEN null;
             END $$;
@@ -46,7 +48,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
             END $$;
         `);
 
-        // Tables - Check if they exist before creating
+        // 3. Tables (No Foreign Keys yet to avoid dependency errors)
         await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "branches" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -70,8 +72,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
                 CONSTRAINT "UQ_department_name" UNIQUE ("name"),
-                CONSTRAINT "PK_departments" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_departments_head" FOREIGN KEY ("head_id") REFERENCES "users"("id") ON DELETE SET NULL
+                CONSTRAINT "PK_departments" PRIMARY KEY ("id")
             )
         `);
 
@@ -85,6 +86,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "phone" character varying,
                 "address" character varying,
                 "dob" date,
+                "staff_id" character varying,
                 "role" "users_role_enum" NOT NULL DEFAULT 'GENERAL_STAFF',
                 "stats_score" double precision NOT NULL DEFAULT 100,
                 "leave_balance" integer NOT NULL DEFAULT 20,
@@ -95,14 +97,10 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
                 CONSTRAINT "UQ_user_email" UNIQUE ("email"),
-                CONSTRAINT "PK_users" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_users_department" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL,
-                CONSTRAINT "FK_users_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL,
-                CONSTRAINT "FK_users_reports_to" FOREIGN KEY ("reports_to_id") REFERENCES "users"("id") ON DELETE SET NULL
+                CONSTRAINT "UQ_user_staff_id" UNIQUE ("staff_id"),
+                CONSTRAINT "PK_users" PRIMARY KEY ("id")
             )
         `);
-
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_USER_EMAIL" ON "users" ("email")`);
 
         await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "attendances" (
@@ -117,10 +115,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "approved_by_id" uuid,
                 "hours_worked" numeric(5,2),
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-                CONSTRAINT "PK_attendances" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_attendances_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_attendances_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL,
-                CONSTRAINT "FK_attendances_approved_by" FOREIGN KEY ("approved_by_id") REFERENCES "users"("id") ON DELETE SET NULL
+                "CONSTRAINT" "PK_attendances" PRIMARY KEY ("id")
             )
         `);
 
@@ -137,9 +132,7 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "approval_history" text[] NOT NULL DEFAULT '{}',
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
-                CONSTRAINT "PK_leave_requests" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_leave_requests_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_leave_requests_approver" FOREIGN KEY ("current_approver_id") REFERENCES "users"("id") ON DELETE SET NULL
+                CONSTRAINT "PK_leave_requests" PRIMARY KEY ("id")
             )
         `);
 
@@ -151,15 +144,9 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "content" text NOT NULL,
                 "is_read" boolean NOT NULL DEFAULT false,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-                CONSTRAINT "PK_messages" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_messages_sender" FOREIGN KEY ("sender_id") REFERENCES "users"("id") ON DELETE CASCADE,
-                CONSTRAINT "FK_messages_receiver" FOREIGN KEY ("receiver_id") REFERENCES "users"("id") ON DELETE CASCADE
+                CONSTRAINT "PK_messages" PRIMARY KEY ("id")
             )
         `);
-
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`);
 
         await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "tickets" (
@@ -175,34 +162,55 @@ export class InitialSchema1767163115974 implements MigrationInterface {
                 "resolution_note" text,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
-                CONSTRAINT "PK_tickets" PRIMARY KEY ("id"),
-                CONSTRAINT "FK_tickets_issuer" FOREIGN KEY ("issuer_id") REFERENCES "users"("id") ON DELETE SET NULL,
-                CONSTRAINT "FK_tickets_target" FOREIGN KEY ("target_user_id") REFERENCES "users"("id") ON DELETE CASCADE
+                CONSTRAINT "PK_tickets" PRIMARY KEY ("id")
             )
         `);
 
+        // 4. Foreign Keys
+        await queryRunner.query(`ALTER TABLE "departments" ADD CONSTRAINT "FK_departments_head" FOREIGN KEY ("head_id") REFERENCES "users"("id") ON DELETE SET NULL`);
+
+        await queryRunner.query(`ALTER TABLE "users" ADD CONSTRAINT "FK_users_department" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL`);
+        await queryRunner.query(`ALTER TABLE "users" ADD CONSTRAINT "FK_users_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL`);
+        await queryRunner.query(`ALTER TABLE "users" ADD CONSTRAINT "FK_users_reports_to" FOREIGN KEY ("reports_to_id") REFERENCES "users"("id") ON DELETE SET NULL`);
+
+        await queryRunner.query(`ALTER TABLE "attendances" ADD CONSTRAINT "FK_attendances_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "attendances" ADD CONSTRAINT "FK_attendances_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL`);
+        await queryRunner.query(`ALTER TABLE "attendances" ADD CONSTRAINT "FK_attendances_approved_by" FOREIGN KEY ("approved_by_id") REFERENCES "users"("id") ON DELETE SET NULL`);
+
+        await queryRunner.query(`ALTER TABLE "leave_requests" ADD CONSTRAINT "FK_leave_requests_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "leave_requests" ADD CONSTRAINT "FK_leave_requests_approver" FOREIGN KEY ("current_approver_id") REFERENCES "users"("id") ON DELETE SET NULL`);
+
+        await queryRunner.query(`ALTER TABLE "messages" ADD CONSTRAINT "FK_messages_sender" FOREIGN KEY ("sender_id") REFERENCES "users"("id") ON DELETE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "messages" ADD CONSTRAINT "FK_messages_receiver" FOREIGN KEY ("receiver_id") REFERENCES "users"("id") ON DELETE CASCADE`);
+
+        await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_tickets_issuer" FOREIGN KEY ("issuer_id") REFERENCES "users"("id") ON DELETE SET NULL`);
+        await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_tickets_target" FOREIGN KEY ("target_user_id") REFERENCES "users"("id") ON DELETE CASCADE`);
+
+        // 5. Indices
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_USER_EMAIL" ON "users" ("email")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_USER_STAFF_ID" ON "users" ("staff_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`);
+        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_TARGET" ON "tickets" ("target_user_id")`);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_STATUS" ON "tickets" ("status")`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP TABLE "tickets"`);
-        await queryRunner.query(`DROP INDEX "IDX_MESSAGE_CREATED_AT"`);
-        await queryRunner.query(`DROP INDEX "IDX_MESSAGE_RECEIVER"`);
-        await queryRunner.query(`DROP INDEX "IDX_MESSAGE_SENDER"`);
-        await queryRunner.query(`DROP TABLE "messages"`);
-        await queryRunner.query(`DROP TABLE "leave_requests"`);
-        await queryRunner.query(`DROP TABLE "attendances"`);
-        await queryRunner.query(`DROP INDEX "IDX_USER_EMAIL"`);
-        await queryRunner.query(`DROP TABLE "users"`);
-        await queryRunner.query(`DROP TABLE "departments"`);
-        await queryRunner.query(`DROP TABLE "branches"`);
+        // Drop tables in reverse order of dependencies if not using CASCADE, or just drop all
+        await queryRunner.query(`DROP TABLE IF EXISTS "tickets"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "messages"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "leave_requests"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "attendances"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "departments"`);
+        await queryRunner.query(`DROP TABLE IF EXISTS "branches"`);
 
-        await queryRunner.query(`DROP TYPE "tickets_status_enum"`);
-        await queryRunner.query(`DROP TYPE "leave_requests_status_enum"`);
-        await queryRunner.query(`DROP TYPE "leave_requests_type_enum"`);
-        await queryRunner.query(`DROP TYPE "attendances_status_enum"`);
-        await queryRunner.query(`DROP TYPE "users_role_enum"`);
+        await queryRunner.query(`DROP TYPE IF EXISTS "tickets_status_enum"`);
+        await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_status_enum"`);
+        await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_type_enum"`);
+        await queryRunner.query(`DROP TYPE IF EXISTS "attendances_status_enum"`);
+        await queryRunner.query(`DROP TYPE IF EXISTS "users_role_enum"`);
     }
 
 }
