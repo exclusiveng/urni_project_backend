@@ -115,7 +115,7 @@ export class InitialCreate1768815143000 implements MigrationInterface {
                 "approved_by_id" uuid,
                 "hours_worked" numeric(5,2),
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-                "CONSTRAINT" "PK_attendances" PRIMARY KEY ("id")
+                CONSTRAINT "PK_attendances" PRIMARY KEY ("id")
             )
         `);
 
