@@ -147,3 +147,39 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
     res.status(500).json({ message: error.message });
   }
 };
+
+export const updateUser = async (req:Request, res: Response) : Promise<Response | void> => {
+  try {
+    const { id } = req.params;
+    const { name, email } = req.body;
+    const user = await userRepo.findOne({ where: { id } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    user.name = name || user.name;
+    user.email = email || user.email;
+    await userRepo.save(user);
+    return res.status(200).json({ message: "User updated successfully" });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const forgotPassword = async (req: Request, res: Response) : Promise<Response | void> => {
+  try {
+    const { email } = req.body;
+    const user = await userRepo.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    const token = signToken(user.id);
+    user.password = undefined as any;
+    return res.status(200).json({
+      status: "success",
+      token,
+      data: { user },
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};

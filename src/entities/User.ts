@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, Index } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, Index, BeforeInsert } from "typeorm";
 import { Department } from "./Department";
 import { Branch } from "./Branch";
 
@@ -9,6 +9,8 @@ export enum UserRole {
   ADMIN = "ADMIN",
   DEPARTMENT_HEAD = "DEPARTMENT_HEAD",
   GENERAL_STAFF = "GENERAL_STAFF",
+  CORPER= "CORPER",
+  INTERN = "INTERN",
 }
 
 @Index("IDX_USER_EMAIL", ["email"])
@@ -38,6 +40,10 @@ export class User {
 
   @Column({ type: "date", nullable: true })
   dob: Date;
+
+  @Index({ unique: true })
+  @Column({ unique: true, nullable: true })
+  staff_id: string;
 
   // --- Professional Details ---
   @Column({
@@ -93,4 +99,18 @@ export class User {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @BeforeInsert()
+  async generateStaffId() {
+    // 1. Get the current year
+    const year = new Date().getFullYear();
+    
+    // 2. Generate a random or sequence-based suffix
+    // For a simple random suffix:
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000); 
+    
+    // 3. Set the uniform format: STF-YEAR-RANDOM
+    // Result: STF-2026-4821
+    this.staff_id = `URNI-${year}-${randomSuffix}`;
+  }
 }
