@@ -17,6 +17,7 @@ import leaveRoutes from "./routes/leave.routes";
 import departRoutes from "./routes/department.route";
 import branchRoutes from "./routes/branch.routes";
 import lookupRoutes from "./routes/lookups.route";
+import appraisalRoutes from "./routes/appraisal.routes";
 import { randomUUID } from "crypto";
 import winston from "winston";
 import multer from "multer";
@@ -108,6 +109,7 @@ app.use("/api/leave", leaveRoutes);
 app.use("/api/departments", departRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/lookups", lookupRoutes);
+app.use("/api/appraisals", appraisalRoutes);
 
 // 6. Serve Static Files
 app.use("/public", express.static(path.join(__dirname, "../public")));
