@@ -7,7 +7,7 @@ export class Branch {
   id: string;
 
   @Column()
-  name: string; 
+  name: string;
 
   @Column({ nullable: true })
   location_city: string;

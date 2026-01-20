@@ -5,6 +5,7 @@ import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
 import { UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { appCache, CacheKeys } from "../utils/cache";
 
 const attendanceRepo = AppDataSource.getRepository(Attendance);
 const branchRepo = AppDataSource.getRepository(Branch);
@@ -108,8 +109,15 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
         return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-in." });
       }
 
-      // Fetch ALL branches to allow clocking in at any branch
-      const allBranches = await branchRepo.find();
+      // Fetch ALL branches (Try Cache First)
+      let allBranches: Branch[] | undefined = appCache.get(CacheKeys.ALL_BRANCHES);
+
+      if (!allBranches) {
+        allBranches = await branchRepo.find();
+        if (allBranches && allBranches.length > 0) {
+          appCache.set(CacheKeys.ALL_BRANCHES, allBranches);
+        }
+      }
 
       if (!allBranches || allBranches.length === 0) {
         return res.status(403).json({

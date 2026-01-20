@@ -48,15 +48,40 @@ const logger = winston.createLogger({
 // 1. Set Security HTTP Headers
 app.use(helmet());
 
-// 2. Rate Limiting (Prevents Brute Force & DoS)
-const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 1000, // Limit each IP to 100 requests per window
+// 2. Rate Limiting (Tiered Strategy)
+
+// A. Global Limiter - Protection against DDoS and spam, but relaxed for shared office IPs
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 2000, // Limit each IP to 2000 requests per 15 mins (approx 130/min shared across office)
   message: "Too many requests from this IP, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use("/api", limiter);
+app.use("/api", globalLimiter);
+
+// B. Strict Auth Limiter - Prevention against Brute Force Attacks
+// Applies specifically to sensitive routes (login, register, password reset)
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 login attempts per 15 mins
+  message: "Too many login attempts from this IP, please try again after 15 minutes.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+// Note: We export this to apply it specifically in auth.routes.ts, 
+// OR we can mount it here if we want to block all attempts to /api/auth/* at this level.
+// Let's mount it here for simplicity and maximum security.
+app.use("/api/auth", authLimiter);
+
+// C. Strict Public File Limiter (Prevent scraping)
+const publicFileLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  message: "Too many file requests.",
+});
+app.use("/public", publicFileLimiter);
+
 
 // 3. Prevent HTTP Parameter Pollution
 app.use(hpp());

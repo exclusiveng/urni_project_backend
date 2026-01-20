@@ -33,6 +33,7 @@
     "hpp": "^0.2.3",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "node-cache": "^5.1.2",
     "pg": "^8.11.3",
     "reflect-metadata": "^0.1.13",
     "sharp": "^0.34.5",
