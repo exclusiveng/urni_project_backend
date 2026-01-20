@@ -3,7 +3,7 @@ import { AppDataSource } from "../../database/data-source";
 import { WorkLog } from "../entities/WorkLog";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { Between } from "typeorm";
-import { User } from "../entities/User";
+import { User, UserRole } from "../entities/User";
 
 const workLogRepo = AppDataSource.getRepository(WorkLog);
 const userRepo = AppDataSource.getRepository(User);
@@ -58,6 +58,14 @@ export const getMonthlyAppraisal = async (req: AuthRequest, res: Response): Prom
         const { userId, month, year } = req.query;
 
         const targetUserId = (userId as string) || req.user!.id; // Default to self if not provided
+
+        // Security Check: Ensure user has permission to view others
+        if (targetUserId !== req.user!.id) {
+            const allowedRoles = [UserRole.CEO, UserRole.ADMIN, UserRole.ME_QC];
+            if (!allowedRoles.includes(req.user!.role)) {
+                return res.status(403).json({ message: "You do not have permission to view other users' appraisals." });
+            }
+        }
 
         // If viewing others, strictly check role (RBAC checks are usually in routes, but good to be safe)
         // Here we assume the route is protected properly or we check relationship
