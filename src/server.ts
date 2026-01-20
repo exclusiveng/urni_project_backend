@@ -22,11 +22,19 @@ import { randomUUID } from "crypto";
 import winston from "winston";
 import multer from "multer";
 
+import { startKeepAliveJob } from "./jobs/keepAlive";
+
 // Load environment variables
 dotenv.config();
 
 // initialize express
 const app = express();
+
+// Start Background Jobs
+if (process.env.NODE_ENV === "production" || process.env.ENABLE_CRON === "true") {
+  startKeepAliveJob();
+}
+
 
 // Trust the first proxy (Render)
 // This is required for express-rate-limit to work correctly behind a reverse proxy
