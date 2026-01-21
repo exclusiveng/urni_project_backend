@@ -54,7 +54,11 @@ const logger = winston.createLogger({
 // --- SECURITY MIDDLEWARE ---
 
 // 1. Set Security HTTP Headers
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 // 2. Rate Limiting (Tiered Strategy)
 
@@ -145,7 +149,7 @@ app.use("/api/lookups", lookupRoutes);
 app.use("/api/appraisals", appraisalRoutes);
 
 // 6. Serve Static Files
-app.use("/public", express.static(path.join(__dirname, "../public")));
+app.use("/public", express.static(path.join(process.cwd(), "public")));
 
 // Multer-specific error handler to return clear messages when upload is rejected
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
