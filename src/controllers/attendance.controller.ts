@@ -79,7 +79,7 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
     const { lat, long, is_manual_override, override_reason } = req.body;
     const user = req.user!;
 
-    // 0. CEO Exemption - CEOs are not required to clock in
+    // 0. CEO Exemption
     if (user.role === UserRole.CEO) {
       return res.status(403).json({
         message: "As CEO, you are exempted from clocking in.",
@@ -87,52 +87,59 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
       });
     }
 
-    // 1. Check if already clocked in today (prevent double entry)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const existing = await attendanceRepo.createQueryBuilder("attendance")
-      .where("attendance.user_id = :userId", { userId: user.id })
-      .andWhere("attendance.clock_in_time >= :todayStart", { todayStart })
-      .getOne();
+    // 1. Run core validation queries concurrently
+    const [existing, branchResult] = await Promise.all([
+      attendanceRepo.createQueryBuilder("attendance")
+        .where("attendance.user_id = :userId", { userId: user.id })
+        .andWhere("attendance.clock_in_time >= :todayStart", { todayStart })
+        .select("attendance.id")
+        .getOne(),
+      (async () => {
+        if (is_manual_override) return { validBranch: null, allBranches: [] };
 
+        if (!lat || !long) throw new Error("GPS coordinates (lat, long) are required for clock-in.");
+
+        // Try Cache First
+        let allBranches = appCache.get<Branch[]>(CacheKeys.ALL_BRANCHES);
+        if (!allBranches) {
+          allBranches = await branchRepo.find();
+          if (allBranches && allBranches.length > 0) {
+            appCache.set(CacheKeys.ALL_BRANCHES, allBranches);
+          }
+        }
+
+        if (!allBranches || allBranches.length === 0) return { validBranch: null, allBranches: [] };
+
+        // Optimized proximity check
+        const validBranch = allBranches.find(branch =>
+          getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long) <= branch.radius_meters
+        );
+
+        return { validBranch: validBranch || null, allBranches };
+      })().catch(err => ({ error: err.message }))
+    ]);
+
+    // Handle results
     if (existing) {
       return res.status(400).json({ message: "You have already clocked in today." });
     }
 
-    let validBranch: Branch | null = null;
+    let finalBranch: Branch | null = null;
 
-    // 2. If NOT Manual Override, validate GPS
     if (!is_manual_override) {
-      // For a standard clock-in, GPS coordinates from the user are mandatory.
-      if (!lat || !long) {
-        return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-in." });
+      if (branchResult && 'error' in branchResult) {
+        return res.status(400).json({ message: branchResult.error });
       }
 
-      // Fetch ALL branches (Try Cache First)
-      let allBranches: Branch[] | undefined = appCache.get(CacheKeys.ALL_BRANCHES);
-
-      if (!allBranches) {
-        allBranches = await branchRepo.find();
-        if (allBranches && allBranches.length > 0) {
-          appCache.set(CacheKeys.ALL_BRANCHES, allBranches);
-        }
-      }
+      const { validBranch, allBranches } = branchResult as { validBranch: Branch | null, allBranches: Branch[] };
 
       if (!allBranches || allBranches.length === 0) {
         return res.status(403).json({
           message: "No branches are available in the system. Please contact an administrator or use manual override.",
         });
-      }
-
-      // Check if user is within range of ANY branch
-      for (const branch of allBranches) {
-        const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
-
-        if (dist <= branch.radius_meters) {
-          validBranch = branch;
-          break; // Found a valid branch, stop searching
-        }
       }
 
       if (!validBranch) {
@@ -146,28 +153,26 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
           }))
         });
       }
+      finalBranch = validBranch;
     }
 
-    // 3. Determine Status (Simple logic: Late if after 9:00 AM)
+    // 2. Determine Status (Simple logic: Late if after 9:00 AM)
     const now = new Date();
     let status = AttendanceStatus.PRESENT;
-    // Use UTC hours for consistent timezone handling.
-    // Nigeria (WAT) is UTC+1. So, 9:00 AM WAT is 8:00 AM UTC.
-    // Late if after 9:00 AM WAT, which is 8:00 AM UTC.
     const utcHour = now.getUTCHours();
     const utcMinutes = now.getUTCMinutes();
     if (utcHour > 8 || (utcHour === 8 && utcMinutes > 0)) {
       status = AttendanceStatus.LATE;
     }
 
-    // 4. Create Record
+    // 3. Create Record
     const attendance = attendanceRepo.create({
       user_id: user.id,
-      branch_id: validBranch?.id, // Will be undefined if is_manual_override is true and validBranch is null
+      branch_id: finalBranch?.id,
       clock_in_time: now,
       status,
       is_manual_override: !!is_manual_override,
-      override_reason: is_manual_override ? override_reason : undefined // Use undefined for nullable columns if not provided
+      override_reason: is_manual_override ? override_reason : undefined
     });
 
     await attendanceRepo.save(attendance);
@@ -176,13 +181,13 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
       status: "success",
       message: is_manual_override
         ? "Manual clock-in request submitted."
-        : `Clocked in successfully at ${validBranch?.name}`,
+        : `Clocked in successfully at ${finalBranch?.name}`,
       data: {
         attendance,
-        branch: validBranch ? {
-          id: validBranch.id,
-          name: validBranch.name,
-          address: validBranch.address
+        branch: finalBranch ? {
+          id: finalBranch.id,
+          name: finalBranch.name,
+          address: finalBranch.address
         } : null
       }
     });
@@ -198,7 +203,7 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     const user = req.user!;
     const now = new Date();
 
-    // 0. CEO Exemption - CEOs are not required to clock out
+    // 0. CEO Exemption
     if (user.role === UserRole.CEO) {
       return res.status(403).json({
         message: "As CEO, you are exempted from clocking out.",
@@ -206,29 +211,46 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
       });
     }
 
-    // 1. Location Validation: Check if user is within ANY branch radius
     if (!lat || !long) {
       return res.status(400).json({ message: "GPS coordinates (lat, long) are required for clock-out." });
     }
 
-    // Fetch ALL branches to allow clocking out at any branch
-    const allBranches = await branchRepo.find();
+    // 1. Run core validation queries concurrently
+    const [attendance, branchResult] = await Promise.all([
+      attendanceRepo.findOne({
+        where: {
+          user_id: user.id,
+          clock_out_time: IsNull()
+        },
+        order: { clock_in_time: "DESC" }
+      }),
+      (async () => {
+        let allBranches = appCache.get<Branch[]>(CacheKeys.ALL_BRANCHES);
+        if (!allBranches) {
+          allBranches = await branchRepo.find();
+          if (allBranches && allBranches.length > 0) {
+            appCache.set(CacheKeys.ALL_BRANCHES, allBranches);
+          }
+        }
 
+        if (!allBranches || allBranches.length === 0) return { validBranch: null, allBranches: [] };
+
+        const validBranch = allBranches.find(branch =>
+          getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long) <= branch.radius_meters
+        );
+        return { validBranch: validBranch || null, allBranches };
+      })()
+    ]);
+
+    if (!attendance) {
+      return res.status(400).json({ message: "No active clock-in record found to clock out." });
+    }
+
+    const { validBranch, allBranches } = branchResult;
     if (!allBranches || allBranches.length === 0) {
       return res.status(403).json({
         message: "No branches are available in the system. Please contact an administrator.",
       });
-    }
-
-    // Check if user is within range of ANY branch
-    let validBranch: Branch | null = null;
-    for (const branch of allBranches) {
-      const dist = getDistanceFromLatLonInMeters(lat, long, branch.gps_lat, branch.gps_long);
-
-      if (dist <= branch.radius_meters) {
-        validBranch = branch;
-        break;
-      }
     }
 
     if (!validBranch) {
@@ -243,27 +265,8 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
       });
     }
 
-    // 2. Find the active session for today that hasn't been clocked out
-    const attendance = await attendanceRepo.findOne({
-      where: {
-        user_id: user.id,
-        clock_out_time: IsNull()
-      },
-      order: { clock_in_time: "DESC" }
-    });
-
-    if (!attendance) {
-      return res.status(400).json({ message: "No active clock-in record found to clock out." });
-    }
-
-    // 3. Calculate hours worked
+    // 3. Calculate hours and update status
     const hoursWorked = calculateHours(attendance.clock_in_time, now);
-
-    // 4. Check for early exit (before 5:00 PM)
-    // Only mark as EARLY_EXIT if they weren't already LATE
-    // Priority: LATE > EARLY_EXIT > PRESENT.
-    // Use UTC hours for consistent timezone handling.
-    // 5:00 PM (17:00) in Nigeria (WAT, UTC+1) is 4:00 PM (16:00) UTC.
     const clockOutUtcHour = now.getUTCHours();
     if (clockOutUtcHour < 16 && attendance.status !== AttendanceStatus.LATE) {
       attendance.status = AttendanceStatus.EARLY_EXIT;
@@ -293,6 +296,8 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     return res.status(500).json({ message: error.message });
   }
 };
+
+
 
 // Get user's own attendance metrics
 export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): Promise<Response | void> => {
