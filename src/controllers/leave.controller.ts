@@ -115,32 +115,10 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
     // --- APPROVAL FLOW ---
     leave.approval_history.push(`Approved by ${approver.name} (${approver.role})`);
 
-    // 1. If Approver is Department Head -> Escalate to ME_QC
-    if (approver.role === UserRole.DEPARTMENT_HEAD) {
-      const meQcUser = await userRepo.findOne({ where: { role: UserRole.ME_QC } });
+    // Check if Approver is a "Major Head"
+    const isMajorHead = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN, UserRole.DEPARTMENT_HEAD].includes(approver.role);
 
-      if (!meQcUser) {
-        return res.status(500).json({
-          message: "System Error: No ME_QC officer found to escalate this request to. Please contact Admin."
-        });
-      }
-
-      leave.current_approver_id = meQcUser.id;
-      // Status remains PENDING
-      await leaveRepo.save(leave);
-
-      return res.status(200).json({
-        status: "success",
-        message: "Approved. Escalated to ME_QC for final verification.",
-        data: leave
-      });
-    }
-
-    // 2. Check if Approver is a "Final Authority" (CEO, ME_QC, ADMIN)
-    // Note: DEPARTMENT_HEAD is removed from here
-    const isFinalAuthority = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(approver.role);
-
-    if (isFinalAuthority) {
+    if (isMajorHead) {
       // FINAL APPROVAL
       leave.status = LeaveStatus.APPROVED;
       leave.current_approver_id = null;
@@ -159,12 +137,8 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       return res.status(200).json({ status: "success", message: "Leave request fully approved.", data: leave });
 
     } else {
-      // 3. Normal Staff Escalation (Report to Superior)
+
       if (!approver.reports_to_id) {
-        // Fallback: If no superior and not a major head, usually shouldn't happen for normal staff unless chain is broken.
-        // Assuming auto-approve or error? Existing logic auto-approved.
-        // Let's modify to keep consistency: Auto-approve fallback or error?
-        // Codebase previously auto-approved:
         leave.status = LeaveStatus.APPROVED;
         await leaveRepo.save(leave);
         return res.status(200).json({ message: "Approved (No superior found to escalate to)." });
