@@ -142,7 +142,28 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
     // Transaction completed successfully. Read tx result (if any)
     const txResult = (res as any).__txResult;
 
+    // Load updated ticket details for notifications
+    const ticketFresh = await ticketRepo.findOne({ where: { id: ticketId }, relations: ["issuer", "target_user"] });
+
     if (req.body.action === "ACKNOWLEDGE" || req.body.action === "RESOLVE") {
+      // Notify issuer (if present and not anonymous)
+      if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
+        req.notify?.(ticketFresh.issuer_id, {
+          type: "TICKET",
+          title: `Ticket update: ${ticketFresh.title}`,
+          body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`,
+          payload: { ticketId },
+        });
+      }
+
+      // Notify the accused (confirmation)
+      req.notify?.(ticketFresh!.target_user_id, {
+        type: "TICKET",
+        title: "Ticket updated",
+        body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`,
+        payload: { ticketId },
+      });
+
       return res.status(200).json({
         status: "success",
         message: req.body.action === "RESOLVE" ? "Ticket resolved (upheld)." : "Ticket acknowledged. Score updated.",
@@ -151,6 +172,27 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
     }
 
     if (req.body.action === "CONTEST") {
+      // Notify issuer (if present and not anonymous)
+      if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
+        req.notify?.(ticketFresh.issuer_id, {
+          type: "TICKET",
+          title: `Ticket contested: ${ticketFresh.title}`,
+          body: `${user.name} contested a ticket.`,
+          payload: { ticketId },
+        });
+      }
+
+      // Notify admins (CEO & ME_QC)
+      const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
+      for (const a of admins) {
+        req.notify?.(a.id, {
+          type: "TICKET",
+          title: `Ticket contested: ${ticketFresh?.title}`,
+          body: `Ticket ${ticketId} has been contested and requires review.`,
+          payload: { ticketId },
+        });
+      }
+
       return res.status(200).json({
         status: "success",
         message: "Ticket contested. HR has been notified.",
@@ -158,6 +200,22 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
     }
 
     if (req.body.action === "VOID") {
+      if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
+        req.notify?.(ticketFresh.issuer_id, {
+          type: "TICKET",
+          title: `Ticket voided: ${ticketFresh.title}`,
+          body: `${user.name} voided the ticket.`,
+          payload: { ticketId },
+        });
+      }
+
+      req.notify?.(ticketFresh!.target_user_id, {
+        type: "TICKET",
+        title: `Ticket voided`,
+        body: `A ticket against you has been voided.`,
+        payload: { ticketId },
+      });
+
       return res.status(200).json({
         status: "success",
         message: "Ticket voided (dismissed).",

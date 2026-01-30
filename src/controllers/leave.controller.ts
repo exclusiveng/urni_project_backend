@@ -109,6 +109,15 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       leave.approval_history.push(`Rejected by ${approver.name} (${approver.role})`);
       leave.current_approver_id = null;
       await leaveRepo.save(leave);
+
+      // Notify requester
+      req.notify?.(leave.user_id, {
+        type: "LEAVE",
+        title: "Leave request rejected",
+        body: `Your leave request was rejected by ${approver.name}.`,
+        payload: { requestId: leave.id }
+      });
+
       return res.status(200).json({ status: "success", message: "Leave request rejected.", data: leave });
     }
 
@@ -134,6 +143,15 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       }
 
       await leaveRepo.save(leave);
+
+      // Notify requester about final approval
+      req.notify?.(leave.user_id, {
+        type: "LEAVE",
+        title: "Leave approved",
+        body: `Your leave request has been approved by ${approver.name}.`,
+        payload: { requestId: leave.id }
+      });
+
       return res.status(200).json({ status: "success", message: "Leave request fully approved.", data: leave });
 
     } else {
@@ -146,6 +164,24 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
 
       leave.current_approver_id = approver.reports_to_id;
       await leaveRepo.save(leave);
+
+      // Notify requester about escalation
+      req.notify?.(leave.user_id, {
+        type: "LEAVE",
+        title: "Leave approved (pending final approval)",
+        body: `${approver.name} approved your leave and escalated it for final approval.`,
+        payload: { requestId: leave.id }
+      });
+
+      // Notify next approver
+      if (approver.reports_to_id) {
+        req.notify?.(approver.reports_to_id, {
+          type: "LEAVE",
+          title: "Leave approval required",
+          body: `A leave request has been escalated to you for final approval.`,
+          payload: { requestId: leave.id }
+        });
+      }
 
       return res.status(200).json({
         status: "success",

@@ -32,8 +32,18 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
 
     await messageRepo.save(message);
 
-    // Emit a Socket.io event to the receiver's room
-    getIO().to(receiver_id).emit("new_message", message);
+    // Emit a Socket.io event to the receiver's room (room names use user_<id>)
+    getIO().to(`user_${receiver_id}`).emit("new_message", message);
+
+    // Buffer a notification to be persisted and delivered after response
+    if (typeof req.notify === "function") {
+      req.notify(receiver_id, {
+        type: "MESSAGE",
+        title: `New message from ${sender.name}`,
+        body: content,
+        payload: { messageId: message.id },
+      });
+    }
 
     res.status(201).json({ status: "success", data: message });
   } catch (error: any) {

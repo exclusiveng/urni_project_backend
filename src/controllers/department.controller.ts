@@ -143,6 +143,8 @@ export const setDepartmentHead = async (req: AuthRequest, res: Response): Promis
       return res.status(400).json({ message: "User must be a member of the department to be set as head" });
     }
 
+    const previousHeadId = department.head_id;
+
     // Update user's role to DEPARTMENT_HEAD
     user.role = UserRole.DEPARTMENT_HEAD;
     await userRepo.save(user);
@@ -150,6 +152,24 @@ export const setDepartmentHead = async (req: AuthRequest, res: Response): Promis
     // Set the department head
     department.head_id = userId;
     await deptRepo.save(department);
+
+    // Notify the new head
+    req.notify?.(userId, {
+      type: "GENERIC",
+      title: "You have been set as Department Head",
+      body: `You are now the head of ${department.name} department.`,
+      payload: { departmentId }
+    });
+
+    // Notify previous head if different
+    if (previousHeadId && previousHeadId !== userId) {
+      req.notify?.(previousHeadId, {
+        type: "GENERIC",
+        title: "You were removed as Department Head",
+        body: `${user.name} has been set as the new head of ${department.name}.`,
+        payload: { departmentId }
+      });
+    }
 
     res.status(200).json({
       status: "success",
@@ -206,6 +226,14 @@ export const removeDepartmentHead = async (req: AuthRequest, res: Response): Pro
     if (currentHead) {
       currentHead.role = UserRole.GENERAL_STAFF;
       await userRepo.save(currentHead);
+
+      // Notify the user they were removed
+      req.notify?.(currentHead.id, {
+        type: "GENERIC",
+        title: "You were removed as Department Head",
+        body: `You have been removed as the head of ${department.name}.`,
+        payload: { departmentId }
+      });
     }
 
     res.status(200).json({
@@ -264,6 +292,14 @@ export const addUserToDepartment = async (req: AuthRequest, res: Response): Prom
     // Update user's department
     user.department_id = departmentId;
     await userRepo.save(user);
+
+    // Notify the user
+    req.notify?.(userId, {
+      type: "GENERIC",
+      title: "Added to department",
+      body: `You have been added to ${department.name} department.`,
+      payload: { departmentId }
+    });
 
     res.status(200).json({
       status: "success",
@@ -325,6 +361,14 @@ export const removeUserFromDepartment = async (req: AuthRequest, res: Response):
     // Remove user from department
     user.department_id = null as any;
     await userRepo.save(user);
+
+    // Notify the user
+    req.notify?.(userId, {
+      type: "GENERIC",
+      title: "Removed from department",
+      body: `You have been removed from ${oldDepartment?.name || 'your department'}.`,
+      payload: { departmentId: oldDepartment?.id }
+    });
 
     res.status(200).json({
       status: "success",

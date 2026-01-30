@@ -61,6 +61,10 @@ export class Attendance {
   @Column({ type: "decimal", precision: 5, scale: 2, nullable: true })
   hours_worked: number;
 
+  // Weekend work flag (auto-set if clocked in on Saturday/Sunday)
+  @Column({ default: false })
+  is_weekend_work: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 }

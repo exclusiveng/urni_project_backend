@@ -3,13 +3,14 @@ import { Between, IsNull, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../../database/data-source";
 import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
-import { UserRole } from "../entities/User";
+import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { appCache, CacheKeys } from "../utils/cache";
+import { isWeekend, getWeekendFilterWhereClause } from "../utils/weekendUtils";
 
 const attendanceRepo = AppDataSource.getRepository(Attendance);
 const branchRepo = AppDataSource.getRepository(Branch);
-// const userRepo = AppDataSource.getRepository(User); 
+const userRepo = AppDataSource.getRepository(User); 
 
 // Helper: Haversine Formula to calculate distance in meters
 const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -76,7 +77,7 @@ export const getAttendanceStatus = async (req: AuthRequest, res: Response): Prom
 
 export const clockIn = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
-    const { lat, long, is_manual_override, override_reason } = req.body;
+    const { lat, long, is_manual_override, override_reason, is_weekend_work } = req.body;
     const user = req.user!;
 
     // 0. CEO Exemption
@@ -89,6 +90,11 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+
+    // Weekend detection and auto-flagging
+    const now = new Date();
+    const isWeekendDay = isWeekend(now);
+    const finalWeekendFlag = isWeekendDay ? true : (is_weekend_work || false);
 
     // 1. Run core validation queries concurrently
     const [existing, branchResult] = await Promise.all([
@@ -157,7 +163,6 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
     }
 
     // 2. Determine Status (Simple logic: Late if after 9:00 AM)
-    const now = new Date();
     let status = AttendanceStatus.PRESENT;
     const utcHour = now.getUTCHours();
     const utcMinutes = now.getUTCMinutes();
@@ -172,23 +177,49 @@ export const clockIn = async (req: AuthRequest, res: Response): Promise<Response
       clock_in_time: now,
       status,
       is_manual_override: !!is_manual_override,
-      override_reason: is_manual_override ? override_reason : undefined
+      override_reason: is_manual_override ? override_reason : undefined,
+      is_weekend_work: finalWeekendFlag
     });
 
     await attendanceRepo.save(attendance);
+
+    // Notify approver(s) when manual override is requested
+    if (is_manual_override) {
+      if (user.reports_to_id) {
+        req.notify?.(user.reports_to_id, {
+          type: "ATTENDANCE",
+          title: "Manual clock-in request",
+          body: `${user.name} requested a manual clock-in.`,
+          payload: { attendanceId: attendance.id }
+        });
+      } else {
+        const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
+        for (const a of admins) {
+          req.notify?.(a.id, {
+            type: "ATTENDANCE",
+            title: "Manual clock-in request",
+            body: `${user.name} requested a manual clock-in (no manager assigned).`,
+            payload: { attendanceId: attendance.id }
+          });
+        }
+      }
+    }
 
     return res.status(201).json({
       status: "success",
       message: is_manual_override
         ? "Manual clock-in request submitted."
-        : `Clocked in successfully at ${finalBranch?.name}`,
+        : finalWeekendFlag
+          ? `Weekend work logged successfully at ${finalBranch?.name}`
+          : `Clocked in successfully at ${finalBranch?.name}`,
       data: {
         attendance,
         branch: finalBranch ? {
           id: finalBranch.id,
           name: finalBranch.name,
           address: finalBranch.address
-        } : null
+        } : null,
+        isWeekendWork: finalWeekendFlag
       }
     });
 
@@ -276,6 +307,28 @@ export const clockOut = async (req: AuthRequest, res: Response): Promise<Respons
     attendance.hours_worked = hoursWorked;
     await attendanceRepo.save(attendance);
 
+    // Notify manager/admins if this was an early exit
+    if (attendance.status === AttendanceStatus.EARLY_EXIT) {
+      if (user.reports_to_id) {
+        req.notify?.(user.reports_to_id, {
+          type: "ATTENDANCE",
+          title: "Early exit detected",
+          body: `${user.name} clocked out early (${hoursWorked} hrs).`,
+          payload: { attendanceId: attendance.id }
+        });
+      } else {
+        const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
+        for (const a of admins) {
+          req.notify?.(a.id, {
+            type: "ATTENDANCE",
+            title: "Early exit detected",
+            body: `${user.name} clocked out early (${hoursWorked} hrs) and has no manager assigned.`,
+            payload: { attendanceId: attendance.id }
+          });
+        }
+      }
+    }
+
     return res.status(200).json({
       status: "success",
       message: `Clocked out successfully at ${validBranch.name}.`,
@@ -316,7 +369,8 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
       dateFilter = MoreThanOrEqual(daysAgo);
     }
 
-    const attendanceRecords = await attendanceRepo.find({
+    // Fetch all records (including weekends) to calculate weekend metrics
+    const allRecords = await attendanceRepo.find({
       where: {
         user_id: user.id,
         clock_in_time: dateFilter
@@ -325,7 +379,23 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
       order: { clock_in_time: "DESC" }
     });
 
-    // Calculate metrics
+    // Fetch business day records (weekends excluded) using database-level filtering
+    const attendanceRecords = await attendanceRepo
+      .createQueryBuilder("attendance")
+      .leftJoinAndSelect("attendance.branch", "branch")
+      .where("attendance.user_id = :userId", { userId: user.id })
+      .andWhere("attendance.clock_in_time >= :startDate", {
+        startDate: dateFilter instanceof Date ? dateFilter : dateFilter._value
+      })
+      .andWhere(getWeekendFilterWhereClause())
+      .orderBy("attendance.clock_in_time", "DESC")
+      .getMany();
+
+    // Calculate weekend metrics
+    const weekendWorkDays = attendanceRecords.filter(r => r.is_weekend_work).length;
+    const weekendsExcluded = allRecords.length - attendanceRecords.length;
+
+    // Calculate metrics (using database-filtered records)
     const totalDays = attendanceRecords.length;
     const totalHours = attendanceRecords.reduce((sum, record) => {
       return sum + (record.hours_worked ? parseFloat(record.hours_worked.toString()) : 0);
@@ -371,7 +441,11 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
           lateDays,
           onLeaveDays,
           earlyExitDays,
-          attendanceRate: totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(2) + '%' : '0%'
+          attendanceRate: totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(2) + '%' : '0%',
+          totalDaysIncludingWeekends: allRecords.length,
+          weekendWorkDays,
+          businessDaysAttended: totalDays,
+          weekendsExcluded
         },
         branchBreakdown: Object.entries(branchBreakdown).map(([branchId, data]) => ({
           branchId,
@@ -396,7 +470,8 @@ export const getMyAttendanceMetrics = async (req: AuthRequest, res: Response): P
             name: record.branch.name,
             address: record.branch.address
           } : null,
-          isManualOverride: record.is_manual_override
+          isManualOverride: record.is_manual_override,
+          isWeekendWork: record.is_weekend_work
         }))
       }
     });
@@ -429,20 +504,54 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
       whereClause.user_id = userId;
     }
 
-    const attendanceRecords = await attendanceRepo.find({
+    // Fetch all records (including weekends) for total count
+    const allRecords = await attendanceRepo.find({
       where: whereClause,
       relations: ["user", "branch", "user.department"],
       order: { clock_in_time: "DESC" }
     });
 
+    // Create query builder for business day records (weekends excluded)
+    let query = attendanceRepo.createQueryBuilder("attendance")
+      .leftJoinAndSelect("attendance.user", "user")
+      .leftJoinAndSelect("attendance.branch", "branch")
+      .leftJoinAndSelect("user.department", "department")
+      .where("attendance.clock_in_time >= :startDate", {
+        startDate: dateFilter instanceof Date ? dateFilter : dateFilter._value
+      })
+      .andWhere(getWeekendFilterWhereClause())
+      .orderBy("attendance.clock_in_time", "DESC");
+
+    if (userId) {
+      query = query.andWhere("attendance.user_id = :userId", { userId });
+    }
+
+    // Fetch business day records
+    const attendanceRecords = await query.getMany();
+
     // Filter by department or branch if specified
     let filteredRecords = attendanceRecords;
     if (departmentId) {
       filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+      // Also filter allRecords for accurate total comparison
+      // Note: In a fully optimized scenario, we would run separate count queries
     }
     if (branchId) {
       filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
     }
+
+    // Weekend metrics
+    const weekendWorkDays = filteredRecords.filter(r => r.is_weekend_work).length;
+    // Approximation for weekends excluded if department/branch filters are applied
+    // For exact numbers with filters, we'd need to filter allRecords too, but keeping it simple for now
+    // or we can just count the difference between what we fetched and what we have
+
+    // To be accurate with filters, let's filter allRecords too
+    let filteredAllRecords = allRecords;
+    if (departmentId) filteredAllRecords = filteredAllRecords.filter(r => r.user?.department?.id === departmentId);
+    if (branchId) filteredAllRecords = filteredAllRecords.filter(r => r.branch_id === branchId);
+
+    const weekendsExcluded = filteredAllRecords.length - filteredRecords.length;
 
     // Calculate overall metrics
     const totalRecords = filteredRecords.length;
@@ -519,7 +628,12 @@ export const getAttendanceMetrics = async (req: AuthRequest, res: Response): Pro
           lateCount,
           onLeaveCount,
           earlyExitCount,
-          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%'
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
+
+          totalRecordsIncludingWeekends: filteredAllRecords.length,
+          weekendWorkDays,
+          businessDaysAttended: totalRecords,
+          weekendsExcluded
         },
         pagination: {
           page: pageNum,
@@ -599,28 +713,38 @@ export const getDailyMetrics = async (req: AuthRequest, res: Response): Promise<
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    let whereClause: any = {
-      clock_in_time: Between(startOfDay, endOfDay)
-    };
+    // Base query for all records (including weekends)
+    let baseQuery = attendanceRepo.createQueryBuilder("attendance")
+      .leftJoinAndSelect("attendance.user", "user")
+      .leftJoinAndSelect("attendance.branch", "branch")
+      .leftJoinAndSelect("user.department", "department")
+      .where("attendance.clock_in_time BETWEEN :startOfDay AND :endOfDay", { startOfDay, endOfDay })
+      .orderBy("attendance.clock_in_time", "ASC");
 
     if (userId) {
-      whereClause.user_id = userId;
-    }
-
-    const attendanceRecords = await attendanceRepo.find({
-      where: whereClause,
-      relations: ["user", "branch", "user.department"],
-      order: { clock_in_time: "ASC" }
-    });
-
-    // Filter by department or branch if specified
-    let filteredRecords = attendanceRecords;
-    if (departmentId) {
-      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+      baseQuery = baseQuery.andWhere("attendance.user_id = :userId", { userId });
     }
     if (branchId) {
-      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+      baseQuery = baseQuery.andWhere("attendance.branch_id = :branchId", { branchId });
     }
+    if (departmentId) {
+      baseQuery = baseQuery.andWhere("department.id = :departmentId", { departmentId });
+    }
+
+    // Fetch all records context
+    const allRecords = await baseQuery.getMany();
+
+    // Fetch business records (apply weekend filter)
+    const attendanceRecords = await baseQuery
+      .andWhere(getWeekendFilterWhereClause())
+      .getMany();
+
+    // Use database-filtered records
+    const filteredRecords = attendanceRecords;
+
+    // Weekend metrics
+    const weekendWorkDays = filteredRecords.filter(r => r.is_weekend_work).length;
+    const weekendsExcluded = allRecords.length - filteredRecords.length;
 
     // Calculate metrics
     const totalRecords = filteredRecords.length;
@@ -654,7 +778,12 @@ export const getDailyMetrics = async (req: AuthRequest, res: Response): Promise<
           onLeaveCount,
           absentCount,
           earlyExitCount,
-          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%'
+          punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
+
+          totalEmployeesIncludingWeekends: allRecords.length,
+          weekendWorkDays,
+          businessDaysAttended: totalRecords,
+          weekendsExcluded
         },
         pagination: {
           page: pageNum,
@@ -707,28 +836,38 @@ export const getWeeklyMetrics = async (req: AuthRequest, res: Response): Promise
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
 
-    let whereClause: any = {
-      clock_in_time: Between(startOfWeek, endOfWeek)
-    };
+    // Base query for all records (including weekends)
+    let baseQuery = attendanceRepo.createQueryBuilder("attendance")
+      .leftJoinAndSelect("attendance.user", "user")
+      .leftJoinAndSelect("attendance.branch", "branch")
+      .leftJoinAndSelect("user.department", "department")
+      .where("attendance.clock_in_time BETWEEN :startOfWeek AND :endOfWeek", { startOfWeek, endOfWeek })
+      .orderBy("attendance.clock_in_time", "DESC");
 
     if (userId) {
-      whereClause.user_id = userId;
-    }
-
-    const attendanceRecords = await attendanceRepo.find({
-      where: whereClause,
-      relations: ["user", "branch", "user.department"],
-      order: { clock_in_time: "DESC" }
-    });
-
-    // Filter by department or branch if specified
-    let filteredRecords = attendanceRecords;
-    if (departmentId) {
-      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+      baseQuery = baseQuery.andWhere("attendance.user_id = :userId", { userId });
     }
     if (branchId) {
-      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+      baseQuery = baseQuery.andWhere("attendance.branch_id = :branchId", { branchId });
     }
+    if (departmentId) {
+      baseQuery = baseQuery.andWhere("department.id = :departmentId", { departmentId });
+    }
+
+    // Fetch all records context
+    const allRecords = await baseQuery.getMany();
+
+    // Fetch business records (apply weekend filter)
+    const attendanceRecords = await baseQuery
+      .andWhere(getWeekendFilterWhereClause())
+      .getMany();
+
+    // Use database-filtered records
+    const filteredRecords = attendanceRecords;
+
+    // Weekend metrics
+    const weekendWorkDays = filteredRecords.filter(r => r.is_weekend_work).length;
+    const weekendsExcluded = allRecords.length - filteredRecords.length;
 
     // Calculate overall metrics
     const totalRecords = filteredRecords.length;
@@ -790,7 +929,11 @@ export const getWeeklyMetrics = async (req: AuthRequest, res: Response): Promise
           onLeaveCount,
           earlyExitCount,
           punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
-          uniqueEmployees: Object.keys(userMetrics).length
+          uniqueEmployees: Object.keys(userMetrics).length,
+          totalRecordsIncludingWeekends: allRecords.length,
+          weekendWorkDays,
+          businessDaysAttended: totalRecords,
+          weekendsExcluded
         },
         pagination: {
           page: pageNum,
@@ -825,28 +968,38 @@ export const getMonthlyMetrics = async (req: AuthRequest, res: Response): Promis
     const startOfMonth = new Date(targetYear, targetMonth, 1, 0, 0, 0, 0);
     const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
 
-    let whereClause: any = {
-      clock_in_time: Between(startOfMonth, endOfMonth)
-    };
+    // Base query for all records (including weekends)
+    let baseQuery = attendanceRepo.createQueryBuilder("attendance")
+      .leftJoinAndSelect("attendance.user", "user")
+      .leftJoinAndSelect("attendance.branch", "branch")
+      .leftJoinAndSelect("user.department", "department")
+      .where("attendance.clock_in_time BETWEEN :startOfMonth AND :endOfMonth", { startOfMonth, endOfMonth })
+      .orderBy("attendance.clock_in_time", "DESC");
 
     if (userId) {
-      whereClause.user_id = userId;
-    }
-
-    const attendanceRecords = await attendanceRepo.find({
-      where: whereClause,
-      relations: ["user", "branch", "user.department"],
-      order: { clock_in_time: "DESC" }
-    });
-
-    // Filter by department or branch if specified
-    let filteredRecords = attendanceRecords;
-    if (departmentId) {
-      filteredRecords = filteredRecords.filter(r => r.user?.department?.id === departmentId);
+      baseQuery = baseQuery.andWhere("attendance.user_id = :userId", { userId });
     }
     if (branchId) {
-      filteredRecords = filteredRecords.filter(r => r.branch_id === branchId);
+      baseQuery = baseQuery.andWhere("attendance.branch_id = :branchId", { branchId });
     }
+    if (departmentId) {
+      baseQuery = baseQuery.andWhere("department.id = :departmentId", { departmentId });
+    }
+
+    // Fetch all records context
+    const allRecords = await baseQuery.getMany();
+
+    // Fetch business records (apply weekend filter)
+    const attendanceRecords = await baseQuery
+      .andWhere(getWeekendFilterWhereClause())
+      .getMany();
+
+    // Use database-filtered records
+    const filteredRecords = attendanceRecords;
+
+    // Weekend metrics
+    const weekendWorkDays = filteredRecords.filter(r => r.is_weekend_work).length;
+    const weekendsExcluded = allRecords.length - filteredRecords.length;
 
     // Calculate overall metrics
     const totalRecords = filteredRecords.length;
@@ -930,7 +1083,12 @@ export const getMonthlyMetrics = async (req: AuthRequest, res: Response): Promis
           onLeaveCount,
           earlyExitCount,
           punctualityRate: totalRecords > 0 ? ((presentCount / totalRecords) * 100).toFixed(2) + '%' : '0%',
-          uniqueEmployees: Object.keys(userMetrics).length
+          uniqueEmployees: Object.keys(userMetrics).length,
+
+          totalRecordsIncludingWeekends: allRecords.length,
+          weekendWorkDays,
+          businessDaysAttended: totalRecords,
+          weekendsExcluded
         },
         pagination: {
           page: pageNum,

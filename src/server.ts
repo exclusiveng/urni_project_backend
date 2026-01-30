@@ -18,6 +18,8 @@ import departRoutes from "./routes/department.route";
 import branchRoutes from "./routes/branch.routes";
 import lookupRoutes from "./routes/lookups.route";
 import appraisalRoutes from "./routes/appraisal.routes";
+import notificationRoutes from "./routes/notification.routes";
+import { attachNotifier } from "./middleware/notification.middleware";
 import { randomUUID } from "crypto";
 import winston from "winston";
 import multer from "multer";
@@ -131,12 +133,18 @@ app.use((req, res, next) => {
 // 5. Body Parsing (Limit size to prevent overflow attacks) - keep a small default
 app.use(express.json({ limit: "10kb" }));
 
+// Attach notification helper (buffers notifications and delivers after response)
+app.use(attachNotifier);
+
 // Replace mounting of routes for big-payload endpoints with per-route body parsers
 app.use("/api/auth", authRoutes);
 app.use("/api/attendance", attendanceRoutes);
 
 // messages may have longer text payloads
 app.use("/api/messages", express.json({ limit: "200kb" }), messageRoutes);
+
+// Notification routes (protected inside)
+app.use("/api/notifications", notificationRoutes);
 
 // tickets may include longer descriptions or inline payloads
 app.use("/api/tickets", express.json({ limit: "200kb" }), ticketRoutes);
