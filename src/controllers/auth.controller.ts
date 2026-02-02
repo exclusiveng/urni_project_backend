@@ -151,13 +151,32 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
 export const updateUser = async (req:Request, res: Response) : Promise<Response | void> => {
   try {
     const { id } = req.params;
-    const { name, email } = req.body;
+    const { name, email, role, department_id, phone } = req.body;
     const user = await userRepo.findOne({ where: { id } });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
     user.name = name || user.name;
     user.email = email || user.email;
+    user.role = role || user.role;
+
+    if (department_id !== undefined) {
+      // allow clearing the department by sending null or empty string
+      if (department_id === null || department_id === "") {
+        user.department = null as any;
+        user.department_id = null as any;
+      } else {
+        const departmentEntity = await DeptRepo.findOne({ where: { id: department_id as string } });
+        if (!departmentEntity) {
+          return res.status(400).json({ message: "Provided department does not exist." });
+        }
+        user.department = departmentEntity;
+        user.department_id = department_id as string;
+      }
+    }
+
+    user.phone = phone || user.phone;
     await userRepo.save(user);
     return res.status(200).json({ message: "User updated successfully" });
   } catch (error: any) {
