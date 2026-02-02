@@ -2,7 +2,7 @@ import { Router } from "express";
 import { forgotPassword, login, register, updateUser } from "../controllers/auth.controller";
 import { uploadProfilePic } from "../middleware/upload.middleware";
 import { protect } from "../middleware/auth.middleware";
-import { UserRole } from "src/entities/User";
+import { UserRole } from "../entities/User";
 import { restrictTo } from "../middleware/auth.middleware";
 
 const router = Router();
