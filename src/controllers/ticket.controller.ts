@@ -291,3 +291,29 @@ export const getTickets = async (req: AuthRequest, res: Response): Promise<Respo
     res.status(500).json({ message: error.message });
   }
 };
+
+export const deleteTicket = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const userRole = req.user?.role;
+    const { ticketId } = req.params;
+
+    // Only CEO or ME_QC can delete tickets
+    if (!userRole || ![UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(userRole as UserRole)) {
+      return res.status(403).json({ message: "You do not have permission to delete tickets." });
+    }
+
+    const ticket = await ticketRepo.findOne({ where: { id: ticketId } });
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    await ticketRepo.remove(ticket);
+
+    return res.status(200).json({
+      status: "success",
+      message: "Ticket deleted successfully."
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};

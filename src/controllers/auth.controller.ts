@@ -1,10 +1,11 @@
-import { Request, Response } from "express"; 
+import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
 import { User, UserRole } from "../entities/User";
+import { AuthRequest } from "../middleware/auth.middleware";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Department } from "../entities/Department";
-import { Branch } from "../entities/Branch"; 
+import { Branch } from "../entities/Branch";
 import { DeepPartial } from "typeorm";
 
 // Extend the Request type to include the 'file' property from Multer
@@ -16,8 +17,8 @@ declare module 'express' {
 
 const userRepo = AppDataSource.getRepository(User);
 const DeptRepo = AppDataSource.getRepository(Department);
-const BranchRepo = AppDataSource.getRepository(Branch); 
- 
+const BranchRepo = AppDataSource.getRepository(Branch);
+
 const signToken = (id: string) => {
   return jwt.sign({ id }, process.env.JWT_SECRET!, {
     expiresIn: "30d",
@@ -35,7 +36,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     const dob = req.body.dob ? new Date(req.body.dob) : undefined;
 
     // 1. Check if user exists
-    const existingUser = await userRepo.findOne({ where: { email } }); 
+    const existingUser = await userRepo.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
@@ -43,9 +44,9 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     // 2. Check if this is the first user (will become CEO)
     const userCount = await userRepo.count();
     const isFirstUser = userCount === 0;
-    
+
     let assignedRole = role || UserRole.GENERAL_STAFF;
-    
+
     if (isFirstUser) {
       // First user automatically becomes CEO
       assignedRole = UserRole.CEO;
@@ -55,7 +56,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     } else {
       // For subsequent users, validate department_id if provided
       if (department_id) {
-        const department = await DeptRepo.findOne({ where: { id: department_id as string } }); 
+        const department = await DeptRepo.findOne({ where: { id: department_id as string } });
         if (!department) {
           return res.status(400).json({ message: "Provided department does not exist." });
         }
@@ -72,7 +73,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
 
     let profile_pic_url: string | undefined = undefined;
     if (req.file) {
-      const imagePath = req.file.path.replace(/\\/g, "/"); 
+      const imagePath = req.file.path.replace(/\\/g, "/");
       profile_pic_url = `${req.protocol}://${req.get("host")}/${imagePath}`;
     }
 
@@ -121,7 +122,7 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
 
     // 1. Check if email & password exist
     if (!email || !password) {
-      return res.status(400).json({ message: "Please provide email and password" }); 
+      return res.status(400).json({ message: "Please provide email and password" });
     }
 
     // 2. Check if user exists & password is correct
@@ -148,7 +149,7 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
   }
 };
 
-export const updateUser = async (req:Request, res: Response) : Promise<Response | void> => {
+export const updateUser = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const { id } = req.params;
     const { name, email, role, department_id, phone } = req.body;
@@ -184,7 +185,7 @@ export const updateUser = async (req:Request, res: Response) : Promise<Response 
   }
 };
 
-export const forgotPassword = async (req: Request, res: Response) : Promise<Response | void> => {
+export const forgotPassword = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const { email } = req.body;
     const user = await userRepo.findOne({ where: { email } });
@@ -198,6 +199,35 @@ export const forgotPassword = async (req: Request, res: Response) : Promise<Resp
       token,
       data: { user },
     });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteUser = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    const { id } = req.params;
+    const currentUser = req.user;
+
+    if (!currentUser) {
+      return res.status(401).json({ message: "Not authorized" });
+    }
+
+    // Allow if user is deleting their own account OR is an admin
+    const isAdmin = [UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(currentUser.role);
+    const isOwner = currentUser.id === id;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ message: "You do not have permission to delete this account" });
+    }
+
+    const user = await userRepo.findOne({ where: { id } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await userRepo.remove(user);
+    return res.status(200).json({ message: "User deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

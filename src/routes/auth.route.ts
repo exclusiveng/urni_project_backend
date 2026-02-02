@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { forgotPassword, login, register, updateUser } from "../controllers/auth.controller";
+import { deleteUser, forgotPassword, login, register, updateUser } from "../controllers/auth.controller";
 import { uploadProfilePic } from "../middleware/upload.middleware";
 import { protect } from "../middleware/auth.middleware";
 import { UserRole } from "../entities/User";
@@ -13,6 +13,8 @@ router.post("/login", login);
 
 
 router.use(protect);
+router.delete("/:id", deleteUser); // Controller handles owner/admin logic
+
 router.use(restrictTo(UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN));
 router.put("/update/:id", updateUser);
 router.post("/forgot-password", forgotPassword);

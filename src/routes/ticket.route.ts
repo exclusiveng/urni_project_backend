@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { issueTicket, respondToTicket, getTickets } from "../controllers/ticket.controller";
+import { issueTicket, respondToTicket, getTickets, deleteTicket } from "../controllers/ticket.controller";
 import { protect } from "../middleware/auth.middleware";
 
 const router = Router();
@@ -15,4 +15,6 @@ router.post("/", issueTicket);
 // Respond (Acknowledge / Contest)
 router.put("/:ticketId/respond", respondToTicket);
 
-export default router;
+router.delete("/:ticketId", deleteTicket);
+
+export default router
