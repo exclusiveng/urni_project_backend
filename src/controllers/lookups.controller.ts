@@ -5,6 +5,7 @@ import { Branch } from "../entities/Branch";
 import { Department } from "../entities/Department";
 import { TicketSeverity, TicketStatus } from "../entities/Ticket";
 import { User, UserRole } from "../entities/User";
+import { Company } from "../entities/Company";
 
 /**
  * Helper to parse pagination & search params
@@ -40,6 +41,35 @@ export const getDepartments = async (req: Request, res: Response) => {
     return res.status(500).json({ status: "error", message: err.message });
   }
 };
+
+export const getCompanies = async (req: Request, res: Response) => {
+  try {
+    const { page, limit, skip, q } = parsePaging(req);
+    const repo = AppDataSource.getRepository(Company);
+
+    const qb = repo.createQueryBuilder("c").select(["c.id", "c.name", "c.abbreviation"]);
+    if (q) {
+      qb.where("LOWER(c.name) LIKE :q OR LOWER(c.abbreviation) LIKE :q", {
+        q: `%${q.toLowerCase()}%`,
+      });
+    }
+    qb.orderBy("c.name", "ASC").skip(skip).take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
+
+    return res.status(200).json({
+      status: "success",
+      results: rows.length,
+      page,
+      limit,
+      total,
+      data: rows,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
 
 export const getBranches = async (req: Request, res: Response) => {
   try {

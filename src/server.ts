@@ -19,6 +19,7 @@ import branchRoutes from "./routes/branch.routes";
 import lookupRoutes from "./routes/lookups.route";
 import appraisalRoutes from "./routes/appraisal.routes";
 import notificationRoutes from "./routes/notification.routes";
+import companyRoutes from "./routes/company.routes";
 import { attachNotifier } from "./middleware/notification.middleware";
 import { randomUUID } from "crypto";
 import winston from "winston";
@@ -152,6 +153,7 @@ app.use("/api/tickets", express.json({ limit: "200kb" }), ticketRoutes);
 // leave/branches/departments/lookups use default small limit
 app.use("/api/leave", leaveRoutes);
 app.use("/api/departments", departRoutes);
+app.use("/api/companies", companyRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/lookups", lookupRoutes);
 app.use("/api/appraisals", appraisalRoutes);

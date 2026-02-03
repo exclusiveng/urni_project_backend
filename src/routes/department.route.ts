@@ -1,5 +1,15 @@
 import { Router } from "express";
-import { createDepartment, getAllDepartments, getDepartmentById, setDepartmentHead, removeDepartmentHead, addUserToDepartment, removeUserFromDepartment } from "../controllers/department.controller";
+import {
+    createDepartment,
+    getAllDepartments,
+    getDepartmentById,
+    setDepartmentHead,
+    removeDepartmentHead,
+    addUserToDepartment,
+    removeUserFromDepartment,
+    updateDepartment,
+    deleteDepartment
+} from "../controllers/department.controller";
 import { protect, restrictTo } from "../middleware/auth.middleware";
 import { UserRole } from "../entities/User";
 
@@ -12,8 +22,10 @@ router.use(protect);
 router.get("/", getAllDepartments);
 router.get("/:id", getDepartmentById);
 
-// Admin Only: Create departments
+// Admin Only: Create, Update, Delete departments
 router.post("/", restrictTo(UserRole.CEO, UserRole.ME_QC), createDepartment);
+router.patch("/:id", restrictTo(UserRole.CEO, UserRole.ME_QC), updateDepartment);
+router.delete("/:id", restrictTo(UserRole.CEO, UserRole.ME_QC), deleteDepartment);
 
 // Admin Only: Manage department heads
 router.patch("/set-head", restrictTo(UserRole.CEO, UserRole.ME_QC), setDepartmentHead);

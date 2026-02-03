@@ -1,12 +1,36 @@
+import { Request } from "express";
 import { AppDataSource } from "../../database/data-source";
 import { Notification, NotificationType } from "../entities/Notification";
 import { getIO } from "../socket";
 import { mailService } from "./mail.service";
-import { User } from "../entities/User";
+import { User, UserRole } from "../entities/User";
 
 const repo = AppDataSource.getRepository(Notification);
 
 export class NotificationService {
+  static async notifyAdmins(req: Request, title: string, body: string, payload?: any) {
+    try {
+      const userRepo = AppDataSource.getRepository(User);
+      const admins = await userRepo.find({
+        where: [
+          { role: UserRole.CEO },
+          { role: UserRole.ME_QC }
+        ]
+      });
+
+      for (const admin of admins) {
+        req.notify?.(admin.id, {
+          type: NotificationType.GENERIC,
+          title,
+          body,
+          payload
+        });
+      }
+    } catch (err) {
+      console.error("Failed to notify admins:", err);
+    }
+  }
+
   static async createNotification({ userId, actorId, type = NotificationType.GENERIC, title, body, payload, emailOptions }: {
     userId: string;
     actorId?: string | null;

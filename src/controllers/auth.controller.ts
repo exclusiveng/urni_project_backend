@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Department } from "../entities/Department";
 import { Branch } from "../entities/Branch";
+import { Company } from "../entities/Company";
 import { DeepPartial } from "typeorm";
 
 // Extend the Request type to include the 'file' property from Multer
@@ -18,6 +19,7 @@ declare module 'express' {
 const userRepo = AppDataSource.getRepository(User);
 const DeptRepo = AppDataSource.getRepository(Department);
 const BranchRepo = AppDataSource.getRepository(Branch);
+const CompanyRepo = AppDataSource.getRepository(Company);
 
 const signToken = (id: string) => {
   return jwt.sign({ id }, process.env.JWT_SECRET!, {
@@ -30,6 +32,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     const { name, email, password, role } = req.body;
     let department_id = req.body.department_id || undefined;
     let reports_to_id = req.body.reports_to_id || undefined;
+    let company_id = req.body.company_id || undefined;
     const branch_id = req.body.branch_id || undefined;
     const phone = req.body.phone || undefined;
     const address = req.body.address || undefined;
@@ -46,20 +49,38 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     const isFirstUser = userCount === 0;
 
     let assignedRole = role || UserRole.GENERAL_STAFF;
+    let companyAbbreviation: string | undefined = undefined;
 
     if (isFirstUser) {
       // First user automatically becomes CEO
       assignedRole = UserRole.CEO;
-      // CEO doesn't need department or superior
+      // CEO doesn't need department, company, or superior
       department_id = undefined;
+      company_id = undefined;
       reports_to_id = undefined;
     } else {
-      // For subsequent users, validate department_id if provided
-      if (department_id) {
-        const department = await DeptRepo.findOne({ where: { id: department_id as string } });
-        if (!department) {
-          return res.status(400).json({ message: "Provided department does not exist." });
-        }
+      // For subsequent users, company and department are required
+      if (!company_id) {
+        return res.status(400).json({ message: "Company ID is required for new employees." });
+      }
+      if (!department_id) {
+        return res.status(400).json({ message: "Department ID is required for new employees." });
+      }
+
+      // Validate company_id
+      const company = await CompanyRepo.findOne({ where: { id: company_id } });
+      if (!company) {
+        return res.status(400).json({ message: "Provided company does not exist." });
+      }
+      companyAbbreviation = company.abbreviation;
+
+      // Validate department_id and ensure it belongs to the company
+      const department = await DeptRepo.findOne({ where: { id: department_id as string } });
+      if (!department) {
+        return res.status(400).json({ message: "Provided department does not exist." });
+      }
+      if (department.company_id !== company_id) {
+        return res.status(400).json({ message: "Department does not belong to the specified company." });
       }
     }
 
@@ -87,6 +108,7 @@ export const register = async (req: Request, res: Response): Promise<Response | 
       email,
       password: hashedPassword,
       role: assignedRole,
+      company_id: company_id,
       department_id: department_id,
       reports_to_id: reports_to_id,
       branch_id: branch_id,
@@ -98,6 +120,12 @@ export const register = async (req: Request, res: Response): Promise<Response | 
 
     // 5. Create user
     const newUser = userRepo.create(newUserPayload);
+
+    // Set company abbreviation for staff_id generation
+    if (companyAbbreviation) {
+      newUser.setCompanyAbbreviation(companyAbbreviation);
+    }
+
     await userRepo.save(newUser);
 
     // 6. Generate Token
@@ -176,7 +204,7 @@ export const login = async (req: Request, res: Response): Promise<Response | voi
 export const updateUser = async (req: Request, res: Response): Promise<Response | void> => {
   try {
     const { id } = req.params;
-    const { name, email, role, department_id, phone } = req.body;
+    const { name, email, role, department_id, company_id, phone } = req.body;
     const user = await userRepo.findOne({ where: { id } });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -185,6 +213,20 @@ export const updateUser = async (req: Request, res: Response): Promise<Response 
     user.name = name || user.name;
     user.email = email || user.email;
     user.role = role || user.role;
+
+    // Handle company_id changes
+    if (company_id !== undefined) {
+      if (company_id === null || company_id === "") {
+        user.company = null as any;
+        user.company_id = null as any;
+      } else {
+        const companyEntity = await CompanyRepo.findOne({ where: { id: company_id as string } });
+        if (!companyEntity) {
+          return res.status(400).json({ message: "Provided company does not exist." });
+        }
+        user.company_id = company_id as string;
+      }
+    }
 
     if (department_id !== undefined) {
       // allow clearing the department by sending null or empty string
@@ -195,6 +237,11 @@ export const updateUser = async (req: Request, res: Response): Promise<Response 
         const departmentEntity = await DeptRepo.findOne({ where: { id: department_id as string } });
         if (!departmentEntity) {
           return res.status(400).json({ message: "Provided department does not exist." });
+        }
+        // Validate department belongs to user's company
+        const userCompanyId = company_id !== undefined ? company_id : user.company_id;
+        if (userCompanyId && departmentEntity.company_id !== userCompanyId) {
+          return res.status(400).json({ message: "Department does not belong to the user's company." });
         }
         user.department = departmentEntity;
         user.department_id = department_id as string;

@@ -2,9 +2,10 @@ import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
 import { Branch } from "../entities/Branch";
 import { AuthRequest } from "../middleware/auth.middleware";
-import { User, UserRole } from "../entities/User";
+import { User } from "../entities/User";
 import { Attendance } from "../entities/Attendance";
 import { appCache, CacheKeys } from "../utils/cache";
+import { NotificationService } from "../services/notification.service";
 
 const branchRepo = AppDataSource.getRepository(Branch);
 const userRepo = AppDataSource.getRepository(User);
@@ -30,15 +31,12 @@ export const createBranch = async (req: AuthRequest, res: Response): Promise<Res
     appCache.del(CacheKeys.ALL_BRANCHES); // Invalidate Cache
 
     // Notify admins about new branch
-    const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
-    for (const a of admins) {
-      req.notify?.(a.id, {
-        type: "GENERIC",
-        title: "New branch created",
-        body: `${(req as any).user?.name || 'A user'} created branch ${savedBranch.name}`,
-        payload: { branchId: savedBranch.id }
-      });
-    }
+    await NotificationService.notifyAdmins(
+      req,
+      "New Branch Created",
+      `${(req as any).user?.name || 'An admin'} created branch ${savedBranch.name}`,
+      { branchId: savedBranch.id }
+    );
 
     res.status(201).json({ status: "success", data: savedBranch });
   } catch (error: any) {
@@ -156,15 +154,12 @@ export const updateBranch = async (req: Request, res: Response): Promise<Respons
     }
 
     // Notify admins as well
-    const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
-    for (const a of admins) {
-      (req as any).notify?.(a.id, {
-        type: "GENERIC",
-        title: "Branch updated",
-        body: `Branch ${branch.name} was updated by ${(req as any).user?.name || 'a user'}.`,
-        payload: { branchId: branch.id }
-      });
-    }
+    await NotificationService.notifyAdmins(
+      req,
+      "Branch Updated",
+      `Branch ${branch.name} was updated by ${(req as any).user?.name || 'an admin'}.`,
+      { branchId: branch.id }
+    );
 
     res.status(200).json({ status: "success", data: branch });
   } catch (error: any) {
@@ -252,15 +247,12 @@ export const deleteBranch = async (req: AuthRequest, res: Response): Promise<Res
     }
 
     // Notify admins about branch deletion
-    const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
-    for (const a of admins) {
-      req.notify?.(a.id, {
-        type: "GENERIC",
-        title: "Branch deleted",
-        body: `Branch ${branchToDelete.name} was deleted by ${(req as any).user?.name || 'a user'}.`,
-        payload: { branchId: branchToDelete.id }
-      });
-    }
+    await NotificationService.notifyAdmins(
+      req,
+      "Branch Deleted",
+      `Branch ${branchToDelete.name} was deleted by ${(req as any).user?.name || 'an admin'}.`,
+      { branchId: branchToDelete.id }
+    );
 
     // Step 7: Return success message with details
     const message = movedUsersCount > 0

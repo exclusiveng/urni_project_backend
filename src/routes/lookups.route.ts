@@ -3,6 +3,7 @@ import {
   getAttendanceStatuses,
   getBranches,
   getBranchLocations,
+  getCompanies,
   getDepartments,
   getMe,
   getRoles,
@@ -22,6 +23,7 @@ router.use(protect); // Protect all routes below
 // Protected endpoints returning only { id, name } (or similar) and paginated where applicable.
 // Query params: ?page=1&limit=10&q=search
 router.get("/departments", getDepartments);
+router.get("/companies", getCompanies);
 router.get("/branches", getBranches);
 router.get("/branches/locations", getBranchLocations); // Optimized for geofencing/caching
 router.get("/users", getUsers);
