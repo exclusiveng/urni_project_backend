@@ -10,8 +10,13 @@ const userRepo = AppDataSource.getRepository(User);
 
 export const createLog = async (req: AuthRequest, res: Response): Promise<Response | void> => {
     try {
-        const { achievements, challenges, date } = req.body;
+        const { achievements, challenges, date, workplace } = req.body;
         const user = req.user!;
+
+        const allowedWorkplaces = ["interstate", "home", "office"];
+        if (workplace && !allowedWorkplaces.includes(workplace)) {
+            return res.status(400).json({ message: "Invalid workplace. Allowed values: interstate, home, office." });
+        }
 
         if (!achievements) {
             return res.status(400).json({ message: "Achievements field is required." });
@@ -21,6 +26,9 @@ export const createLog = async (req: AuthRequest, res: Response): Promise<Respon
         const logDate = date ? new Date(date) : new Date();
         // Normalize to YYYY-MM-DD
         const dateStr = logDate.toISOString().split('T')[0];
+
+        // Normalize workplace with default
+        const workplaceVal = workplace || "office";
 
         // Check if log exists
         let workLog = await workLogRepo.findOne({
@@ -34,6 +42,7 @@ export const createLog = async (req: AuthRequest, res: Response): Promise<Respon
             // Update existing
             workLog.achievements = achievements;
             workLog.challenges = challenges || workLog.challenges;
+            workLog.workplace = workplace ? workplace : workLog.workplace;
             await workLogRepo.save(workLog);
             return res.status(200).json({ status: "success", message: "Daily log updated successfully.", data: workLog });
         } else {
@@ -42,7 +51,8 @@ export const createLog = async (req: AuthRequest, res: Response): Promise<Respon
                 user_id: user.id,
                 date: dateStr,
                 achievements,
-                challenges
+                challenges,
+                workplace: workplaceVal
             });
             await workLogRepo.save(workLog);
             return res.status(201).json({ status: "success", message: "Daily log submitted successfully.", data: workLog });
@@ -110,6 +120,7 @@ export const getMonthlyAppraisal = async (req: AuthRequest, res: Response): Prom
                     date: l.date,
                     achievements: l.achievements,
                     challenges: l.challenges,
+                    workplace: l.workplace,
                     createdAt: l.created_at
                 }))
             }

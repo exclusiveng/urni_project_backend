@@ -23,6 +23,9 @@ export class WorkLog {
     @Column({ type: "text", nullable: true })
     challenges: string;
 
+    @Column({ type: "enum", enum: ["interstate", "home", "office"], default: "office" })
+    workplace: "interstate" | "home" | "office";
+
     @CreateDateColumn()
     created_at: Date;
 
