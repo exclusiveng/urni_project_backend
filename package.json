@@ -38,6 +38,7 @@
     "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.13",
+    "@types/nodemailer": "^7.0.9",
     "pg": "^8.11.3",
     "reflect-metadata": "^0.1.13",
     "sharp": "^0.34.5",
@@ -48,7 +49,6 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "@types/nodemailer": "^7.0.9",
     "axios": "^1.13.4",
     "nodemon": "^3.0.1",
     "socket.io-client": "^4.8.3",
