@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{subject}}</title>
+    <style>
+      /* Simple responsive, email-safe styles */
+      body { margin:0; padding:0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f5f7fa; color:#333; }
+      .preheader { display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; }
+      .container { max-width:680px; margin:0 auto; background:#ffffff; border-radius:6px; overflow:hidden; box-shadow:0 6px 18px rgba(16,24,40,0.08); }
+      .header { padding:20px 28px; background:#f97316; color:#fff; display:flex; align-items:center; gap:12px }
+      .logo { height:36px; width:auto; }
+      .content { padding:28px; font-size:16px; line-height:1.5; color:#111827; }
+      .title { font-size:20px; font-weight:600; margin-bottom:8px; }
+      .body { margin-bottom:20px; }
+      .cta { display:inline-block; text-decoration:none; background:#f97316; color:#fff; padding:10px 16px; border-radius:6px; font-weight:600 }
+      .muted { color:#6b7280; font-size:13px }
+      .footer { padding:18px 28px; font-size:13px; color:#6b7280; background:#f9fafb; }
+      @media (max-width:480px){ .container{ margin:12px } .header{ padding:16px } .content{ padding:18px } }
+    </style>
+  </head>
+  <body>
+    <div class="preheader">{{preheader}}</div>
+    <div class="container">
+      <div class="header">
+        {{#if logoUrl}}
+          <img src="{{logoUrl}}" alt="{{brandName}}" class="logo" />
+        {{else}}
+          <strong style="color:#fff">{{brandName}}</strong>
+        {{/if}}
+      </div>
+
+      <div class="content">
+        {{#if title}}
+          <div class="title">{{title}}</div>
+        {{/if}}
+
+        <div class="body">{{{body}}}</div>
+
+        {{#if cta_url}}
+          <p><a href="{{cta_url}}" class="cta">{{cta_text}}</a></p>
+        {{/if}}
+
+        <p class="muted">If you did not expect this email, you can disregard it or contact <a href="mailto:support@{{brandUrl}}">support</a>.</p>
+      </div>
+
+      <div class="footer">
+        <div>{{brandName}} • <span>{{brandUrl}}</span></div>
+        <div style="margin-top:6px">{{unsubscribe_message}}</div>
+        <div class="muted" style="margin-top:8px">© {{year}} {{brandName}}. All rights reserved.</div>
+      </div>
+    </div>
+  </body>
+</html>

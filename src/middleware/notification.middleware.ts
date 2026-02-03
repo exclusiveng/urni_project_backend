@@ -5,7 +5,7 @@ import { NotificationService } from "../services/notification.service";
 declare global {
   namespace Express {
     interface Request {
-      notify?: (to: string, payload: { type?: string; title: string; body: string; payload?: any; actorId?: string | null }) => void;
+      notify?: (to: string, payload: { type?: string; title: string; body: string; payload?: any; actorId?: string | null; emailOptions?: { send?: boolean; subject?: string; template?: string; to?: string; context?: any } }) => void;
     }
   }
 }
@@ -33,6 +33,7 @@ export const attachNotifier = (req: Request, res: Response, next: NextFunction) 
           title: n.payload.title,
           body: n.payload.body,
           payload: n.payload.payload,
+          emailOptions: n.payload.emailOptions,
         });
       } catch (err) {
         console.error("Failed to persist/emit notification", err);

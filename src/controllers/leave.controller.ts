@@ -71,6 +71,26 @@ export const requestLeave = async (req: AuthRequest, res: Response): Promise<Res
 
     await leaveRepo.save(leave);
 
+    // Notify the initial approver (if pending)
+    if (leave.status === LeaveStatus.PENDING && leave.current_approver_id) {
+      req.notify?.(leave.current_approver_id, {
+        type: "LEAVE",
+        title: "Permissions approval required",
+        body: `${user.name} has requested permissions (${leave.type}) from ${leave.start_date} to ${leave.end_date}.`,
+        payload: { requestId: leave.id },
+        emailOptions: { send: true, subject: `Permissions approval required: ${user.name}`, template: "permissions", context: { body: `A permissions request requires your review.`, cta_text: "Review Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
+      });
+    }
+
+    // Notify requester (confirmation)
+    req.notify?.(leave.user_id, {
+      type: "LEAVE",
+      title: `Permissions request submitted`,
+      body: `Your permissions request is ${leave.status.toLowerCase()}.`,
+      payload: { requestId: leave.id },
+      emailOptions: { send: true, subject: `Permissions request ${leave.status.toLowerCase()}`, template: "permissions", context: { body: `Your request has been ${leave.status.toLowerCase()}.`, cta_text: "View Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
+    });
+
     res.status(201).json({ status: "success", data: leave });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -113,9 +133,10 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       // Notify requester
       req.notify?.(leave.user_id, {
         type: "LEAVE",
-        title: "Leave request rejected",
-        body: `Your leave request was rejected by ${approver.name}.`,
-        payload: { requestId: leave.id }
+        title: "Permissions request rejected",
+        body: `Your permissions request was rejected by ${approver.name}.`,
+        payload: { requestId: leave.id },
+        emailOptions: { send: true, subject: `Permissions request rejected`, template: "permissions", context: { body: `Your permissions request was rejected by ${approver.name}.`, cta_text: "View Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
       });
 
       return res.status(200).json({ status: "success", message: "Leave request rejected.", data: leave });
@@ -147,9 +168,10 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       // Notify requester about final approval
       req.notify?.(leave.user_id, {
         type: "LEAVE",
-        title: "Leave approved",
-        body: `Your leave request has been approved by ${approver.name}.`,
-        payload: { requestId: leave.id }
+        title: "Permissions approved",
+        body: `Your permissions request has been approved by ${approver.name}.`,
+        payload: { requestId: leave.id },
+        emailOptions: { send: true, subject: `Permissions approved`, template: "permissions", context: { body: `Your permissions request has been approved by ${approver.name}.`, cta_text: "View Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
       });
 
       return res.status(200).json({ status: "success", message: "Leave request fully approved.", data: leave });
@@ -168,18 +190,20 @@ export const respondToLeave = async (req: AuthRequest, res: Response): Promise<R
       // Notify requester about escalation
       req.notify?.(leave.user_id, {
         type: "LEAVE",
-        title: "Leave approved (pending final approval)",
-        body: `${approver.name} approved your leave and escalated it for final approval.`,
-        payload: { requestId: leave.id }
+        title: "Permissions approved (pending final approval)",
+        body: `${approver.name} approved your permissions request and escalated it for final approval.`,
+        payload: { requestId: leave.id },
+        emailOptions: { send: true, subject: `Permissions pending final approval`, template: "permissions", context: { body: `${approver.name} approved your permissions request and escalated it for final approval.`, cta_text: "View Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
       });
 
       // Notify next approver
       if (approver.reports_to_id) {
         req.notify?.(approver.reports_to_id, {
           type: "LEAVE",
-          title: "Leave approval required",
-          body: `A leave request has been escalated to you for final approval.`,
-          payload: { requestId: leave.id }
+          title: "Permissions approval required",
+          body: `A permissions request has been escalated to you for final approval.`,
+          payload: { requestId: leave.id },
+          emailOptions: { send: true, subject: `Permissions approval required`, template: "permissions", context: { body: `A permissions request has been escalated to you for final approval.`, cta_text: "Review Request", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/permissions/${leave.id}` } }
         });
       }
 

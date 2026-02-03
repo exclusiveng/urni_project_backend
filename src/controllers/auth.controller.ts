@@ -106,6 +106,30 @@ export const register = async (req: Request, res: Response): Promise<Response | 
     // Remove password from output
     newUser.password = undefined as any;
 
+    // Queue a welcome notification + email (best-effort)
+    try {
+      const frontendUrl = process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || "";
+      (req as any).notify?.(newUser.id, {
+        type: "GENERIC",
+        title: "Welcome to TBG",
+        body: `Welcome to ${process.env.MAIL_BRAND_NAME || "TBG"}! Your account has been successfully created.`,
+        emailOptions: {
+          send: true,
+          subject: `Welcome to ${process.env.MAIL_BRAND_NAME || "TBG"}`,
+          template: "welcome",
+          context: {
+            title: `Welcome to ${process.env.MAIL_BRAND_NAME || "TBG"}`,
+            body: "Your account has been successfully created. Click below to get started.",
+            cta_text: "Sign in",
+            cta_url: frontendUrl,
+            preheader: "Welcome to TBG - your account is ready",
+          },
+        },
+      });
+    } catch (err) {
+      console.error("Failed to queue welcome notification/email:", err);
+    }
+
     return res.status(201).json({
       status: "success",
       token,
@@ -194,6 +218,33 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
     }
     const token = signToken(user.id);
     user.password = undefined as any;
+
+    // Queue password reset notification + email (best-effort)
+    try {
+      const frontendUrl = process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || "";
+      const resetUrl = frontendUrl ? `${frontendUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}` : `?token=${encodeURIComponent(token)}`;
+
+      (req as any).notify?.(user.id, {
+        type: "PASSWORD_RESET",
+        title: "Password reset requested",
+        body: "A password reset was requested for your account. Use the link below to reset your password.",
+        emailOptions: {
+          send: true,
+          subject: "Reset your password",
+          template: "password-reset",
+          context: {
+            title: "Reset your password",
+            body: "A password reset was requested for your account. Click the button below to reset your password.",
+            cta_text: "Reset password",
+            cta_url: resetUrl,
+            preheader: "Reset your TBG password",
+          },
+        },
+      });
+    } catch (err) {
+      console.error("Failed to queue password-reset notification/email:", err);
+    }
+
     return res.status(200).json({
       status: "success",
       token,

@@ -1,17 +1,20 @@
 import { AppDataSource } from "../../database/data-source";
 import { Notification, NotificationType } from "../entities/Notification";
 import { getIO } from "../socket";
+import { mailService } from "./mail.service";
+import { User } from "../entities/User";
 
 const repo = AppDataSource.getRepository(Notification);
 
 export class NotificationService {
-  static async createNotification({ userId, actorId, type = NotificationType.GENERIC, title, body, payload }: {
+  static async createNotification({ userId, actorId, type = NotificationType.GENERIC, title, body, payload, emailOptions }: {
     userId: string;
     actorId?: string | null;
     type?: NotificationType;
     title: string;
     body: string;
     payload?: any;
+    emailOptions?: { send?: boolean; subject?: string; template?: string; to?: string; context?: any };
   }) {
     const notification = repo.create({
       user_id: userId,
@@ -34,6 +37,24 @@ export class NotificationService {
       // Log to console for now; Winston logger could be used
       // Do not throw; delivery should be best-effort
       console.error("Notification emit failed:", err);
+    }
+
+    // Optional: send an email when requested
+    if (emailOptions?.send) {
+      try {
+        const userRepo = AppDataSource.getRepository(User);
+        const user = await userRepo.findOne({ where: { id: userId } });
+        const to = emailOptions.to || user?.email;
+        if (to) {
+          if (emailOptions.template) {
+            await mailService.sendTemplate(to, emailOptions.subject || title, emailOptions.template, emailOptions.context || { name: user?.name || to.split('@')[0], body });
+          } else {
+            await mailService.sendMail({ to, subject: emailOptions.subject || title, text: body });
+          }
+        }
+      } catch (err) {
+        console.error("Email send failed:", err);
+      }
     }
 
     return saved;

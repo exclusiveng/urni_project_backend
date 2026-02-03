@@ -52,6 +52,36 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
 
     await ticketRepo.save(ticket);
 
+    // Notify the target user about the new ticket
+    req.notify?.(target_user_id, {
+      type: "TICKET",
+      title: `New ticket: ${ticket.title}`,
+      body: `${is_anonymous ? "An anonymous report" : `${issuer.name} has issued a ticket`} regarding: ${ticket.title}`,
+      payload: { ticketId: ticket.id },
+      emailOptions: {
+        send: true,
+        subject: `Ticket assigned: ${ticket.title}`,
+        template: "ticket",
+        context: { body: `A ticket has been issued against you: ${ticket.title}`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}` }
+      }
+    });
+
+    // Confirm to issuer (if not anonymous)
+    if (!is_anonymous) {
+      req.notify?.(issuer.id, {
+        type: "TICKET",
+        title: "Ticket submitted",
+        body: `Your ticket titled \"${ticket.title}\" has been submitted.`,
+        payload: { ticketId: ticket.id },
+        emailOptions: {
+          send: true,
+          subject: `Your ticket was submitted: ${ticket.title}`,
+          template: "ticket",
+          context: { body: `Thanks ${issuer.name}, your ticket was submitted.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}` }
+        }
+      });
+    }
+
     res.status(201).json({ status: "success", message: "Ticket issued successfully.", data: ticket });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -153,6 +183,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket update: ${ticketFresh.title}`,
           body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`,
           payload: { ticketId },
+          emailOptions: { send: true, subject: `Ticket update: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
         });
       }
 
@@ -162,6 +193,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         title: "Ticket updated",
         body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`,
         payload: { ticketId },
+        emailOptions: { send: true, subject: `Ticket update: ${ticketFresh?.title}`, template: "ticket", context: { body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
       });
 
       return res.status(200).json({
@@ -179,6 +211,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket contested: ${ticketFresh.title}`,
           body: `${user.name} contested a ticket.`,
           payload: { ticketId },
+          emailOptions: { send: true, subject: `Ticket contested: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} contested a ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
         });
       }
 
@@ -190,6 +223,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket contested: ${ticketFresh?.title}`,
           body: `Ticket ${ticketId} has been contested and requires review.`,
           payload: { ticketId },
+          emailOptions: { send: true, subject: `Ticket contested: ${ticketFresh?.title}`, template: "ticket", context: { body: `Ticket ${ticketId} has been contested and requires review.`, cta_text: "Review Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
         });
       }
 
@@ -206,6 +240,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket voided: ${ticketFresh.title}`,
           body: `${user.name} voided the ticket.`,
           payload: { ticketId },
+          emailOptions: { send: true, subject: `Ticket voided: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} voided the ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
         });
       }
 
@@ -214,6 +249,7 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         title: `Ticket voided`,
         body: `A ticket against you has been voided.`,
         payload: { ticketId },
+        emailOptions: { send: true, subject: `Ticket voided`, template: "ticket", context: { body: `A ticket against you has been voided.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
       });
 
       return res.status(200).json({
