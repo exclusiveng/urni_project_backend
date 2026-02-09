@@ -34,6 +34,9 @@ export class User {
   profile_pic_url: string;
 
   @Column({ nullable: true })
+  signature_url: string;
+
+  @Column({ nullable: true })
   phone: string;
 
   @Column({ nullable: true })

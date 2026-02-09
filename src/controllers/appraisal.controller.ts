@@ -112,7 +112,8 @@ export const getMonthlyAppraisal = async (req: AuthRequest, res: Response): Prom
                     id: user?.id,
                     name: user?.name,
                     email: user?.email,
-                    role: user?.role
+                    role: user?.role,
+                    signature_url: user?.signature_url
                 },
                 period: `${y}-${m}`,
                 totalLogs: logs.length,

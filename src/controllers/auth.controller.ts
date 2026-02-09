@@ -302,6 +302,29 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
   }
 };
 
+export const uploadUserSignature = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No signature file uploaded" });
+    }
+
+    const user = req.user!;
+    const imagePath = req.file.path.replace(/\\/g, "/");
+    const signatureUrl = `${req.protocol}://${req.get("host")}/${imagePath}`;
+
+    user.signature_url = signatureUrl;
+    await userRepo.save(user);
+
+    return res.status(200).json({
+      status: "success",
+      message: "Signature uploaded successfully",
+      data: { signature_url: signatureUrl }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteUser = async (req: AuthRequest, res: Response): Promise<Response | void> => {
   try {
     const { id } = req.params;

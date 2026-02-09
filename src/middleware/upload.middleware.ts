@@ -49,3 +49,21 @@ const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFil
 
 export const uploadProfilePic = multer({ storage: profileStorage, fileFilter });
 export const uploadCompanyLogo = multer({ storage: logoStorage, fileFilter });
+
+// Define storage for signatures
+const signatureStorage = multer.diskStorage({
+  destination: (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
+    const dir = "public/uploads/signatures";
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+export const uploadSignature = multer({ storage: signatureStorage, fileFilter });
