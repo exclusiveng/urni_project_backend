@@ -1,20 +1,34 @@
-import express from "express";
+import { Router } from "express";
+import { 
+    createAppraisal, 
+    getAllAppraisals, 
+    getMyAppraisals, 
+    getAppraisalsByUserId,
+    addOwnerSignature
+} from "../controllers/appraisal.controller";
 import { protect } from "../middleware/auth.middleware";
-import { createLog, getMonthlyAppraisal } from "../controllers/appraisal.controller";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
+import { uploadSignature } from "../middleware/upload.middleware";
 
-const router = express.Router();
+const router = Router();
 
 router.use(protect);
 
-// Submit/Update daily log (Self)
-router.post("/", createLog);
+// Usually employees create self-appraisals or managers create them?
+// Let's assume anyone can create a draft, or maybe only specific roles.
+// For now, let's say create is open (it's often self-reflection).
+// Or maybe it requires permission?
+// Let's stick to restricting viewing others.
 
-// Get Monthly Report
-// Users can see their own. Higher ups can see anyone's (implemented logic in controller defaults to self if no userId, 
-// but we should probably restrict querying OTHER userIds to admins)
-// For now, allow all authenticated users to hit this, logic inside handles 'self' vs 'other' visibility concerns if we want strictness.
-// But let's restrict "viewing arbitrary user" to Admins/CEO/etc in a real app.
-// Here we'll just open it for simplicity as per "admin dealings" request.
-router.get("/monthly", getMonthlyAppraisal);
+router.post("/", requirePermission(Permission.APPRAISAL_CREATE), createAppraisal);
+router.get("/my-appraisals", getMyAppraisals);
+
+// Manager view
+router.get("/user/:userId", requirePermission(Permission.APPRAISAL_VIEW_ALL), getAppraisalsByUserId);
+router.get("/", requirePermission(Permission.APPRAISAL_VIEW_ALL), getAllAppraisals);
+
+// Add signature
+router.patch("/:id/sign", uploadSignature.single("signature"), addOwnerSignature);
 
 export default router;

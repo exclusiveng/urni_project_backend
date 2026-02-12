@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from "typeorm";
 import { User } from "./User";
+import { Company } from "./Company";
 
 @Entity("branches")
 export class Branch {
@@ -24,6 +25,10 @@ export class Branch {
 
   @Column("int", { default: 100 }) // Default radius in meters (e.g., 100m)
   radius_meters: number;
+
+  // A branch has many companies under it
+  @OneToMany(() => Company, (company) => company.branch)
+  companies: Company[];
 
   @OneToMany(() => User, (user) => user.branch)
   employees: User[];

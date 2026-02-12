@@ -27,6 +27,14 @@ export class Department {
   @Column({ nullable: true })
   head_id: string;
 
+  // Assistant Department Head
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "assistant_head_id" })
+  assistantHead: User;
+
+  @Column({ nullable: true })
+  assistant_head_id: string;
+
   // Employees in this department
   @OneToMany(() => User, (user) => user.department)
   employees: User[];

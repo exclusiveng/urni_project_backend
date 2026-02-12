@@ -11,34 +11,30 @@ import {
   getMyAttendanceMetrics,
   getWeeklyMetrics
 } from "../controllers/attendance.controller";
-import { UserRole } from "../entities/User";
-import { protect, restrictTo } from "../middleware/auth.middleware";
+import { protect } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
 
 const router = Router();
 
-// All routes require login
+// Apply auth middleware
 router.use(protect);
 
-// User attendance actions
+// --- User Actions ---
 router.post("/clock-in", clockIn);
 router.post("/clock-out", clockOut);
 router.get("/status", getAttendanceStatus);
-
-// Get all branches (available to all authenticated users)
-router.get("/branches", getAllBranches);
-
-// User's own attendance metrics
 router.get("/my-metrics", getMyAttendanceMetrics);
 
-// Admin routes
-router.post("/branches", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), createBranch);
+// --- Branch Management (often overlapping with Branch routes) ---
+// If the attendance controller has createBranch logic, we gate it:
+router.post("/branches", requirePermission(Permission.BRANCH_CREATE), createBranch);
+router.get("/branches", getAllBranches); 
 
-// Admin/ME_QC: Get attendance metrics (with filters)
-router.get("/metrics", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getAttendanceMetrics);
-
-// Admin/ME_QC: Get daily, weekly, and monthly metrics
-router.get("/metrics/daily", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getDailyMetrics);
-router.get("/metrics/weekly", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getWeeklyMetrics);
-router.get("/metrics/monthly", restrictTo(UserRole.ME_QC, UserRole.CEO, UserRole.ADMIN), getMonthlyMetrics);
+// --- Metrics & Reporting (Managerial) ---
+router.get("/metrics", requirePermission(Permission.ATTENDANCE_METRICS), getAttendanceMetrics);
+router.get("/metrics/daily", requirePermission(Permission.ATTENDANCE_METRICS), getDailyMetrics);
+router.get("/metrics/weekly", requirePermission(Permission.ATTENDANCE_METRICS), getWeeklyMetrics);
+router.get("/metrics/monthly", requirePermission(Permission.ATTENDANCE_METRICS), getMonthlyMetrics);
 
 export default router;

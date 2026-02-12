@@ -8,34 +8,40 @@ const ticketRepo = AppDataSource.getRepository(Ticket);
 const userRepo = AppDataSource.getRepository(User);
 
 // 1. Issue a Ticket
-export const issueTicket = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const issueTicket = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
-    const { target_user_id, title, description, severity, is_anonymous } = req.body;
+    const { target_user_id, title, description, severity, is_anonymous } =
+      req.body;
     const issuer = req.user!;
-
 
     const target = await userRepo.findOne({ where: { id: target_user_id } });
     if (!target) {
       return res.status(404).json({ message: "Target user not found" });
     }
 
-
     if (!is_anonymous) {
       // For non-anonymous tickets, we enforce a stricter hierarchy check.
 
       // 1. General Staff cannot issue non-anonymous disciplinary tickets.
       if (issuer.role === UserRole.GENERAL_STAFF) {
-        return res.status(403).json({ message: "General Staff cannot issue disciplinary tickets directly. Please use the anonymous whistleblowing feature if you need to report an issue." });
+        return res.status(403).json({
+          message:
+            "General Staff cannot issue disciplinary tickets directly. Please use the anonymous whistleblowing feature if you need to report an issue.",
+        });
       }
 
       // 2. For other roles, check their authority:
-      // CEO and ME_QC roles have broad authority and can issue tickets to anyone.
-      if (![UserRole.CEO, UserRole.ME_QC].includes(issuer.role)) {
+      // CEO and MD roles have broad authority and can issue tickets to anyone.
+      if (![UserRole.CEO, UserRole.MD].includes(issuer.role)) {
         // For roles like DEPARTMENT_HEAD, they can only issue tickets to their direct subordinates.
         // This check ensures the target user reports directly to the issuer.
         if (target.reports_to_id !== issuer.id) {
           return res.status(403).json({
-            message: "You can only issue disciplinary tickets to users who directly report to you."
+            message:
+              "You can only issue disciplinary tickets to users who directly report to you.",
           });
         }
       }
@@ -47,7 +53,7 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
       title,
       description,
       severity: severity || TicketSeverity.LOW,
-      is_anonymous: !!is_anonymous
+      is_anonymous: !!is_anonymous,
     });
 
     await ticketRepo.save(ticket);
@@ -62,8 +68,12 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
         send: true,
         subject: `Ticket assigned: ${ticket.title}`,
         template: "ticket",
-        context: { body: `A ticket has been issued against you: ${ticket.title}`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}` }
-      }
+        context: {
+          body: `A ticket has been issued against you: ${ticket.title}`,
+          cta_text: "View Ticket",
+          cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}`,
+        },
+      },
     });
 
     // Confirm to issuer (if not anonymous)
@@ -77,19 +87,30 @@ export const issueTicket = async (req: AuthRequest, res: Response): Promise<Resp
           send: true,
           subject: `Your ticket was submitted: ${ticket.title}`,
           template: "ticket",
-          context: { body: `Thanks ${issuer.name}, your ticket was submitted.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}` }
-        }
+          context: {
+            body: `Thanks ${issuer.name}, your ticket was submitted.`,
+            cta_text: "View Ticket",
+            cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticket.id}`,
+          },
+        },
       });
     }
 
-    res.status(201).json({ status: "success", message: "Ticket issued successfully.", data: ticket });
+    res.status(201).json({
+      status: "success",
+      message: "Ticket issued successfully.",
+      data: ticket,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
 };
 
 // 2. Respond (Acknowledge or Contest)
-export const respondToTicket = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const respondToTicket = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
     const { ticketId } = req.params;
     const { action, contest_note } = req.body; // "ACKNOWLEDGE" or "CONTEST"
@@ -106,16 +127,26 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         throw { statusCode: 404, message: "Ticket not found" };
       }
 
-      const isSuperUser = [UserRole.CEO, UserRole.ME_QC].includes(user.role);
+      const isSuperUser = [UserRole.CEO, UserRole.MD].includes(user.role);
 
       // Only the accused OR a super user can respond
       if (ticket.target_user_id !== user.id && !isSuperUser) {
-        throw { statusCode: 403, message: "This ticket is not addressed to you." };
+        throw {
+          statusCode: 403,
+          message: "This ticket is not addressed to you.",
+        };
       }
 
       // If bypassing, we allow actions even if ticket is not OPEN (e.g. resolving a CONTESTED ticket)
-      if (ticket.status !== TicketStatus.OPEN && ticket.status !== TicketStatus.CONTESTED && !isSuperUser) {
-        throw { statusCode: 400, message: "This ticket has already been processed." };
+      if (
+        ticket.status !== TicketStatus.OPEN &&
+        ticket.status !== TicketStatus.CONTESTED &&
+        !isSuperUser
+      ) {
+        throw {
+          statusCode: 400,
+          message: "This ticket has already been processed.",
+        };
       }
 
       // ACTION A: ACKNOWLEDGE (Accept Fault) or RESOLVE (Admin Upholds)
@@ -124,16 +155,21 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         // Optionally save resolution note if provided (requires entity update, we skip for now)
 
         // Fetch fresh user row within transaction
-        const targetUser = await txUserRepo.findOne({ where: { id: ticket.target_user_id } });
+        const targetUser = await txUserRepo.findOne({
+          where: { id: ticket.target_user_id },
+        });
         if (!targetUser) {
           throw { statusCode: 404, message: "Target user not found" };
         }
 
         // DEDUCT SCORE (ensure not below 0)
-        // Only deduct if converting from OPEN/CONTESTED -> RESOLVED? 
+        // Only deduct if converting from OPEN/CONTESTED -> RESOLVED?
         // We assume Resolving means "Uphold Penalty".
         const severityVal = (ticket.severity as unknown as number) || 0;
-        targetUser.stats_score = Math.max(0, (targetUser.stats_score || 0) - severityVal);
+        targetUser.stats_score = Math.max(
+          0,
+          (targetUser.stats_score || 0) - severityVal,
+        );
 
         // Persist both updates inside the same transaction
         await txUserRepo.save(targetUser);
@@ -147,7 +183,10 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
       // ACTION B: CONTEST
       if (action === "CONTEST") {
         if (!contest_note) {
-          throw { statusCode: 400, message: "You must provide a reason/note to contest a ticket." };
+          throw {
+            statusCode: 400,
+            message: "You must provide a reason/note to contest a ticket.",
+          };
         }
 
         ticket.status = TicketStatus.CONTESTED;
@@ -173,7 +212,10 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
     const txResult = (res as any).__txResult;
 
     // Load updated ticket details for notifications
-    const ticketFresh = await ticketRepo.findOne({ where: { id: ticketId }, relations: ["issuer", "target_user"] });
+    const ticketFresh = await ticketRepo.findOne({
+      where: { id: ticketId },
+      relations: ["issuer", "target_user"],
+    });
 
     if (req.body.action === "ACKNOWLEDGE" || req.body.action === "RESOLVE") {
       // Notify issuer (if present and not anonymous)
@@ -183,7 +225,16 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket update: ${ticketFresh.title}`,
           body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`,
           payload: { ticketId },
-          emailOptions: { send: true, subject: `Ticket update: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+          emailOptions: {
+            send: true,
+            subject: `Ticket update: ${ticketFresh.title}`,
+            template: "ticket",
+            context: {
+              body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`,
+              cta_text: "View Ticket",
+              cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+            },
+          },
         });
       }
 
@@ -193,12 +244,24 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         title: "Ticket updated",
         body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`,
         payload: { ticketId },
-        emailOptions: { send: true, subject: `Ticket update: ${ticketFresh?.title}`, template: "ticket", context: { body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+        emailOptions: {
+          send: true,
+          subject: `Ticket update: ${ticketFresh?.title}`,
+          template: "ticket",
+          context: {
+            body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`,
+            cta_text: "View Ticket",
+            cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+          },
+        },
       });
 
       return res.status(200).json({
         status: "success",
-        message: req.body.action === "RESOLVE" ? "Ticket resolved (upheld)." : "Ticket acknowledged. Score updated.",
+        message:
+          req.body.action === "RESOLVE"
+            ? "Ticket resolved (upheld)."
+            : "Ticket acknowledged. Score updated.",
         current_score: txResult?.current_score,
       });
     }
@@ -211,19 +274,39 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket contested: ${ticketFresh.title}`,
           body: `${user.name} contested a ticket.`,
           payload: { ticketId },
-          emailOptions: { send: true, subject: `Ticket contested: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} contested a ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+          emailOptions: {
+            send: true,
+            subject: `Ticket contested: ${ticketFresh.title}`,
+            template: "ticket",
+            context: {
+              body: `${user.name} contested a ticket.`,
+              cta_text: "View Ticket",
+              cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+            },
+          },
         });
       }
 
-      // Notify admins (CEO & ME_QC)
-      const admins = await userRepo.find({ where: [{ role: UserRole.CEO }, { role: UserRole.ME_QC }] });
+      // Notify admins (CEO & MD)
+      const admins = await userRepo.find({
+        where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
+      });
       for (const a of admins) {
         req.notify?.(a.id, {
           type: "TICKET",
           title: `Ticket contested: ${ticketFresh?.title}`,
           body: `Ticket ${ticketId} has been contested and requires review.`,
           payload: { ticketId },
-          emailOptions: { send: true, subject: `Ticket contested: ${ticketFresh?.title}`, template: "ticket", context: { body: `Ticket ${ticketId} has been contested and requires review.`, cta_text: "Review Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+          emailOptions: {
+            send: true,
+            subject: `Ticket contested: ${ticketFresh?.title}`,
+            template: "ticket",
+            context: {
+              body: `Ticket ${ticketId} has been contested and requires review.`,
+              cta_text: "Review Ticket",
+              cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+            },
+          },
         });
       }
 
@@ -240,7 +323,16 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
           title: `Ticket voided: ${ticketFresh.title}`,
           body: `${user.name} voided the ticket.`,
           payload: { ticketId },
-          emailOptions: { send: true, subject: `Ticket voided: ${ticketFresh.title}`, template: "ticket", context: { body: `${user.name} voided the ticket.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+          emailOptions: {
+            send: true,
+            subject: `Ticket voided: ${ticketFresh.title}`,
+            template: "ticket",
+            context: {
+              body: `${user.name} voided the ticket.`,
+              cta_text: "View Ticket",
+              cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+            },
+          },
         });
       }
 
@@ -249,7 +341,16 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
         title: `Ticket voided`,
         body: `A ticket against you has been voided.`,
         payload: { ticketId },
-        emailOptions: { send: true, subject: `Ticket voided`, template: "ticket", context: { body: `A ticket against you has been voided.`, cta_text: "View Ticket", cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}` } }
+        emailOptions: {
+          send: true,
+          subject: `Ticket voided`,
+          template: "ticket",
+          context: {
+            body: `A ticket against you has been voided.`,
+            cta_text: "View Ticket",
+            cta_url: `${process.env.FRONTEND_URL || process.env.MAIL_BRAND_URL || ""}/tickets/${ticketId}`,
+          },
+        },
       });
 
       return res.status(200).json({
@@ -268,7 +369,10 @@ export const respondToTicket = async (req: AuthRequest, res: Response): Promise<
 };
 
 // 3. Get Tickets
-export const getTickets = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const getTickets = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
     const user = req.user!;
     const page = parseInt(req.query.page as string) || 1; // Default to page 1
@@ -276,18 +380,18 @@ export const getTickets = async (req: AuthRequest, res: Response): Promise<Respo
     const skip = (page - 1) * limit;
 
     // Scenario A: CEO/SuperAdmin (God Mode - See Contested or All)
-    if ([UserRole.CEO, UserRole.ME_QC].includes(user.role)) {
+    if ([UserRole.CEO, UserRole.MD].includes(user.role)) {
       // Show all, specifically highlighting contested ones
       const [tickets, total] = await ticketRepo.findAndCount({
         order: { created_at: "DESC" },
         relations: ["target_user", "issuer"],
         skip,
-        take: limit
+        take: limit,
       });
       // Hide issuer name if anonymous
-      const sanitized = tickets.map(t => ({
+      const sanitized = tickets.map((t) => ({
         ...t,
-        issuer: t.is_anonymous ? null : t.issuer
+        issuer: t.is_anonymous ? null : t.issuer,
       }));
       return res.status(200).json({
         status: "success",
@@ -295,7 +399,7 @@ export const getTickets = async (req: AuthRequest, res: Response): Promise<Respo
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit),
       });
     }
 
@@ -305,12 +409,12 @@ export const getTickets = async (req: AuthRequest, res: Response): Promise<Respo
       order: { created_at: "DESC" },
       relations: ["issuer"],
       skip,
-      take: limit
+      take: limit,
     });
 
-    const sanitized = myTickets.map(t => ({
+    const sanitized = myTickets.map((t) => ({
       ...t,
-      issuer: t.is_anonymous ? { name: "Anonymous" } : t.issuer
+      issuer: t.is_anonymous ? { name: "Anonymous" } : t.issuer,
     }));
     const totalPages = Math.ceil(total / limit);
 
@@ -320,22 +424,31 @@ export const getTickets = async (req: AuthRequest, res: Response): Promise<Respo
       page,
       limit,
       total,
-      totalPages
+      totalPages,
     });
-
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const deleteTicket = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const deleteTicket = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
     const userRole = req.user?.role;
     const { ticketId } = req.params;
 
-    // Only CEO or ME_QC can delete tickets
-    if (!userRole || ![UserRole.CEO, UserRole.ME_QC, UserRole.ADMIN].includes(userRole as UserRole)) {
-      return res.status(403).json({ message: "You do not have permission to delete tickets." });
+    // Only CEO or MD can delete tickets
+    if (
+      !userRole ||
+      ![UserRole.CEO, UserRole.MD, UserRole.ADMIN].includes(
+        userRole as UserRole,
+      )
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to delete tickets." });
     }
 
     const ticket = await ticketRepo.findOne({ where: { id: ticketId } });
@@ -347,9 +460,42 @@ export const deleteTicket = async (req: AuthRequest, res: Response): Promise<Res
 
     return res.status(200).json({
       status: "success",
-      message: "Ticket deleted successfully."
+      message: "Ticket deleted successfully.",
     });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getTicketById = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const { id } = req.params;
+    const ticket = await ticketRepo.findOne({
+      where: { id },
+      relations: ["issuer", "target_user"],
+    });
+
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    // Access check?
+    // Issuer, Target, or Admin/CEO/MD
+    const user = req.user!;
+    const hasAccess =
+      ticket.issuer_id === user.id ||
+      ticket.target_user_id === user.id ||
+      [UserRole.CEO, UserRole.MD, UserRole.ADMIN].includes(user.role);
+
+    if (!hasAccess) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to view this ticket" });
+    }
+
+    return res.status(200).json({ status: "success", data: { ticket } });
+  } catch (e: any) {
+    return res.status(500).json({ message: e.message });
   }
 };

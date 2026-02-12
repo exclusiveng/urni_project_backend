@@ -1,24 +1,27 @@
 import { Router } from "express";
-import { getMyRequests, getPendingApprovals, getUserRequests, requestLeave, respondToLeave } from "../controllers/leave.controller";
+import {
+    requestLeave,
+    respondToLeave,
+    getPendingApprovals,
+    getMyRequests,
+    getAllRequests 
+} from "../controllers/leave.controller";
 import { protect } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
 
 const router = Router();
 
 router.use(protect);
 
-// Staff: Request leave
-router.post("/", requestLeave);
+router.post("/request", requestLeave); 
+router.get("/my-requests", getMyRequests);
+router.get("/pending", getPendingApprovals); 
 
-// Staff: Get my leaves (History)
-router.get("/", getMyRequests);
+// Respond (Approve/Reject)
+router.patch("/:id/respond", requirePermission(Permission.LEAVE_APPROVE), respondToLeave);
 
-// Managers: See what I need to approve
-router.get("/pending", getPendingApprovals);
-
-// Admin: Get specific user's leaves
-router.get("/user/:userId", getUserRequests);
-
-// Managers: Approve/Reject
-router.post("/:requestId/respond", respondToLeave);
+// Admin view all
+router.get("/all", requirePermission(Permission.LEAVE_VIEW_ALL), getAllRequests);
 
 export default router;

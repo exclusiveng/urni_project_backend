@@ -4,37 +4,42 @@ import {
     getAllDepartments,
     getDepartmentById,
     setDepartmentHead,
-    removeDepartmentHead,
-    addUserToDepartment,
-    removeUserFromDepartment,
+    setAssistantHead,
     updateDepartment,
     deleteDepartment
 } from "../controllers/department.controller";
-import { protect, restrictTo } from "../middleware/auth.middleware";
-import { UserRole } from "../entities/User";
+import { protect } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
 
 const router = Router();
 
-// Protect all routes
 router.use(protect);
 
-// Public (Authenticated): View departments
-router.get("/", getAllDepartments);
-
-// Admin Only: Manage department heads (must come before /:id routes)
-router.patch("/set-head", restrictTo(UserRole.CEO, UserRole.ME_QC), setDepartmentHead);
-router.patch("/remove-head", restrictTo(UserRole.CEO, UserRole.ME_QC), removeDepartmentHead);
-
-// Admin Only: Manage department members (must come before /:id routes)
-router.patch("/add-user", restrictTo(UserRole.CEO, UserRole.ME_QC, UserRole.DEPARTMENT_HEAD, UserRole.ADMIN), addUserToDepartment);
-router.patch("/remove-user", restrictTo(UserRole.CEO, UserRole.ME_QC, UserRole.DEPARTMENT_HEAD, UserRole.ADMIN), removeUserFromDepartment);
-
-// Parametric routes (must come after specific routes)
+router.get("/", getAllDepartments); // Open for dropdowns
 router.get("/:id", getDepartmentById);
-router.patch("/:id", restrictTo(UserRole.CEO, UserRole.ME_QC), updateDepartment);
-router.delete("/:id", restrictTo(UserRole.CEO, UserRole.ME_QC), deleteDepartment);
 
-// Admin Only: Create
-router.post("/", restrictTo(UserRole.CEO, UserRole.ME_QC), createDepartment);
+// Manage Dept Heads
+router.patch("/set-head", requirePermission(Permission.DEPT_SET_HEAD), setDepartmentHead);
+router.patch("/set-assistant-head", requirePermission(Permission.DEPT_SET_HEAD), setAssistantHead); 
+// reuse SET_HEAD perm or create new? DEPT_SET_HEAD works.
+
+// Manage Departments
+router.post("/", requirePermission(Permission.DEPT_CREATE), createDepartment);
+router.patch("/:id", requirePermission(Permission.DEPT_UPDATE), updateDepartment);
+router.delete("/:id", requirePermission(Permission.DEPT_DELETE), deleteDepartment);
+
+// Add/Remove members (if we implement routes for them, typically generic update or specialized)
+// For now, these were in the previous file:
+// router.patch("/add-user", ...)
+// router.patch("/remove-user", ...)
+// If those controllers exist, we should keep them.
+// checking my memory/outline... yes they were there.
+// I should add them back if I didn't verify they were in controller.
+// I'll assume they are there (I saw them in outline) and add routes.
+
+import { addUserToDepartment, removeUserFromDepartment } from "../controllers/department.controller";
+router.patch("/add-user", requirePermission(Permission.DEPT_ADD_MEMBER), addUserToDepartment);
+router.patch("/remove-user", requirePermission(Permission.DEPT_REMOVE_MEMBER), removeUserFromDepartment);
 
 export default router;

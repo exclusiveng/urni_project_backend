@@ -7,25 +7,24 @@ import {
     deleteCompany,
     getCompanyEmployees
 } from "../controllers/company.controller";
-import { protect, restrictTo } from "../middleware/auth.middleware";
+import { protect } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
 import { uploadCompanyLogo } from "../middleware/upload.middleware";
-import { UserRole } from "../entities/User";
 
 const router = Router();
 
-// Protect all routes
 router.use(protect);
 
-// Authenticated: View companies
-router.get("/", getAllCompanies);
-router.get("/:id", getCompanyById);
-router.get("/:id/employees", getCompanyEmployees);
+// View companies - (MD sees branch-scoped, others might see all or none depending on logic)
+// Let's require basic view permission
+router.get("/", requirePermission(Permission.COMPANY_VIEW_ALL), getAllCompanies);
+router.get("/:id", requirePermission(Permission.COMPANY_VIEW_ALL), getCompanyById);
+router.get("/:id/employees", requirePermission(Permission.COMPANY_VIEW_ALL), getCompanyEmployees);
 
-// CEO/ME_QC: Create and update companies (with logo upload support)
-router.post("/", restrictTo(UserRole.CEO, UserRole.ME_QC), uploadCompanyLogo.single("logo"), createCompany);
-router.patch("/:id", restrictTo(UserRole.CEO, UserRole.ME_QC), uploadCompanyLogo.single("logo"), updateCompany);
-
-// CEO Only: Delete company
-router.delete("/:id", restrictTo(UserRole.CEO), deleteCompany);
+// Create/Update/Delete - restricted permissions
+router.post("/", requirePermission(Permission.COMPANY_CREATE), uploadCompanyLogo.single("logo"), createCompany);
+router.patch("/:id", requirePermission(Permission.COMPANY_UPDATE), uploadCompanyLogo.single("logo"), updateCompany);
+router.delete("/:id", requirePermission(Permission.COMPANY_DELETE), deleteCompany);
 
 export default router;

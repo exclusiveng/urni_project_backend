@@ -45,7 +45,7 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
   }
 };
 
-// Role Authorization (RBAC)
+// Role Authorization (RBAC) — broad role gate
 export const restrictTo = (...roles: UserRole[]) => {
   return async (req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> => {
     if (!req.user || !roles.includes(req.user.role)) {

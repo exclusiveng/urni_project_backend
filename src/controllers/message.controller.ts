@@ -10,7 +10,10 @@ const messageRepo = AppDataSource.getRepository(Message);
 const userRepo = AppDataSource.getRepository(User);
 
 // 1. Send a Message
-export const sendMessage = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const sendMessage = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
     const { receiver_id, content } = req.body;
     const sender = req.user!;
@@ -27,7 +30,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
     const message = messageRepo.create({
       sender_id: sender.id,
       receiver_id,
-      content
+      content,
     });
 
     await messageRepo.save(message);
@@ -52,7 +55,10 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<Resp
 };
 
 // 2. Get Conversation (or All Messages for CEO)
-export const getMessages = async (req: AuthRequest, res: Response): Promise<Response | void> => {
+export const getMessages = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
   try {
     const user = req.user!;
     const { contactId } = req.params;
@@ -62,25 +68,36 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
     const limit = parseInt(req.query.limit as string) || 15;
     const skip = (page - 1) * limit;
 
-    const query = messageRepo.createQueryBuilder("message")
+    const query = messageRepo
+      .createQueryBuilder("message")
       .leftJoinAndSelect("message.sender", "sender")
       .leftJoinAndSelect("message.receiver", "receiver")
       .orderBy("message.created_at", "ASC");
 
     // --- SCENARIO A: CEO (GOD MODE) ---
     if (user.role === UserRole.CEO) {
-
       if (contactId) {
         // For CEO, filter by a specific user's conversations if contactId is provided
-        query.where("message.sender_id = :contactId OR message.receiver_id = :contactId", { contactId })
-          .orWhere("message.sender_id = :contactId AND message.receiver_id = :contactId", { contactId });
+        query
+          .where(
+            "message.sender_id = :contactId OR message.receiver_id = :contactId",
+            { contactId },
+          )
+          .orWhere(
+            "message.sender_id = :contactId AND message.receiver_id = :contactId",
+            { contactId },
+          );
       }
     }
 
     // --- SCENARIO B: STANDARD USER ---
     else {
       if (!contactId) {
-        return res.status(400).json({ message: "Please specify a user ID to fetch the conversation." });
+        return res
+          .status(400)
+          .json({
+            message: "Please specify a user ID to fetch the conversation.",
+          });
       }
 
       // Standard users can ONLY see messages they sent OR received
@@ -88,12 +105,12 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
         new Brackets((qb) => {
           qb.where(
             "(message.sender_id = :userId AND message.receiver_id = :contactId)",
-            { userId: user.id, contactId }
+            { userId: user.id, contactId },
           ).orWhere(
             "(message.sender_id = :contactId AND message.receiver_id = :userId)",
-            { userId: user.id, contactId }
+            { userId: user.id, contactId },
           );
-        })
+        }),
       );
     }
 
@@ -101,7 +118,6 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
       .skip(skip)
       .take(limit)
       .getManyAndCount();
-
 
     res.status(200).json({
       status: "success",
@@ -111,9 +127,8 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<Resp
         currentPage: page,
         limit: limit,
       },
-      data: messages
+      data: messages,
     });
-
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -145,9 +160,9 @@ export const getInbox = async (req: AuthRequest, res: Response) => {
             WHERE rn = 1
         `;
 
-
     // The main query fetches the full message and contact details for each latest message.
-    const [inbox, total] = await messageRepo.createQueryBuilder("message")
+    const [inbox, total] = await messageRepo
+      .createQueryBuilder("message")
       // Use the subquery to find the latest message IDs
       .where(`message.id IN (${latestMessageIdsSubquery})`)
       // Pass parameters as an object for named parameters like :userId
@@ -166,11 +181,10 @@ export const getInbox = async (req: AuthRequest, res: Response) => {
         totalItems: total,
         totalPages: Math.ceil(total / limit),
         currentPage: page,
-        limit: limit
+        limit: limit,
       },
-      data: inbox
+      data: inbox,
     });
-
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -194,27 +208,35 @@ export const getConversation = async (req: Request, res: Response) => {
         const decoded = Buffer.from(cursor, "base64").toString("utf8");
         [cursorCreatedAt, cursorId] = decoded.split("::");
       } catch {
-        return res.status(400).json({ status: "error", message: "Invalid cursor" });
+        return res
+          .status(400)
+          .json({ status: "error", message: "Invalid cursor" });
       }
     }
 
     const repo = AppDataSource.getRepository(Message);
     // Build query: messages where (sender=user AND receiver=userId) OR vice-versa
-    const qb = repo.createQueryBuilder("m")
-      .where("(m.sender_id = :me AND m.receiver_id = :other) OR (m.sender_id = :other AND m.receiver_id = :me)", {
-        me: (req as any).user?.id,
-        other: userId,
-      });
+    const qb = repo
+      .createQueryBuilder("m")
+      .where(
+        "(m.sender_id = :me AND m.receiver_id = :other) OR (m.sender_id = :other AND m.receiver_id = :me)",
+        {
+          me: (req as any).user?.id,
+          other: userId,
+        },
+      );
 
     // apply cursor: (created_at < :cursorCreatedAt) OR (created_at = :cursorCreatedAt AND m.id < :cursorId)
     if (cursorCreatedAt && cursorId) {
       qb.andWhere(
         " (m.created_at < :cursorCreatedAt) OR (m.created_at = :cursorCreatedAt AND m.id < :cursorId) ",
-        { cursorCreatedAt, cursorId }
+        { cursorCreatedAt, cursorId },
       );
     }
 
-    qb.orderBy("m.created_at", "DESC").addOrderBy("m.id", "DESC").take(pageLimit + 1);
+    qb.orderBy("m.created_at", "DESC")
+      .addOrderBy("m.id", "DESC")
+      .take(pageLimit + 1);
 
     const rows = await qb.getMany();
 
@@ -235,5 +257,31 @@ export const getConversation = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+export const markMessageAsRead = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const { id } = req.params;
+    const user = req.user!;
+
+    const message = await messageRepo.findOne({ where: { id } });
+    if (!message) return res.status(404).json({ message: "Message not found" });
+
+    if (message.receiver_id !== user.id) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to mark this message as read" });
+    }
+
+    message.is_read = true;
+    await messageRepo.save(message);
+
+    return res.status(200).json({ status: "success", data: { message } });
+  } catch (e: any) {
+    return res.status(500).json({ message: e.message });
   }
 };

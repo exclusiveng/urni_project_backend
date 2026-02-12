@@ -1,73 +1,73 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class CreateAllEntities1770000000000 implements MigrationInterface {
-    name = 'CreateAllEntities1770000000000'
+  name = "CreateAllEntities1770000000000";
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        // Ensure uuid extension
-        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Ensure uuid extension
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
 
-        // Create enum types
-        await queryRunner.query(`
+    // ─── Enum types ────────────────────────────────────────────
+
+    await queryRunner.query(`
             DO $$ BEGIN
-                CREATE TYPE "users_role_enum" AS ENUM('CEO', 'ME_QC', 'ADMIN', 'DEPARTMENT_HEAD', 'GENERAL_STAFF', 'CORPER', 'INTERN');
+                CREATE TYPE "users_role_enum" AS ENUM('CEO', 'MD', 'ADMIN', 'HR', 'DEPARTMENT_HEAD', 'ASST_DEPARTMENT_HEAD', 'GENERAL_STAFF');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "users_position_enum" AS ENUM('FULLTIME', 'CONTRACT', 'CORPER', 'GRADUATE_INTERN', 'STUDENT_INTERN');
+            EXCEPTION WHEN duplicate_object THEN null;
+            END $$;
+        `);
+
+    await queryRunner.query(`
             DO $$ BEGIN
                 CREATE TYPE "attendances_status_enum" AS ENUM('PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE', 'EARLY_EXIT');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             DO $$ BEGIN
                 CREATE TYPE "leave_requests_type_enum" AS ENUM('LEAVE', 'MEDICAL', 'WORK', 'EDUCATION', 'MATERNITY', 'VACATION', 'PATERNITY', 'OTHERS');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             DO $$ BEGIN
                 CREATE TYPE "leave_requests_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             DO $$ BEGIN
                 CREATE TYPE "tickets_status_enum" AS ENUM('OPEN', 'RESOLVED', 'CONTESTED', 'VOIDED');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             DO $$ BEGIN
                 CREATE TYPE "notifications_type_enum" AS ENUM('MESSAGE','TICKET','LEAVE','ATTENDANCE','GENERIC');
             EXCEPTION WHEN duplicate_object THEN null;
             END $$;
         `);
 
-        // Companies
-        await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "companies" (
-                "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-                "name" character varying NOT NULL,
-                "abbreviation" character varying NOT NULL,
-                "address" character varying,
-                "logo_url" character varying,
-                "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-                "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
-                CONSTRAINT "UQ_companies_name" UNIQUE ("name"),
-                CONSTRAINT "UQ_companies_abbr" UNIQUE ("abbreviation"),
-                CONSTRAINT "PK_companies" PRIMARY KEY ("id")
-            )
+    await queryRunner.query(`
+            DO $$ BEGIN
+                CREATE TYPE "work_logs_workplace_enum" AS ENUM('interstate','home','office');
+            EXCEPTION WHEN duplicate_object THEN null;
+            END $$;
         `);
 
-        // Branches
-        await queryRunner.query(`
+    // ─── Branches (top-level organisational unit) ──────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "branches" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "name" character varying NOT NULL,
@@ -82,35 +82,61 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        // Departments (create columns first, add FK to users after users table exists)
-        await queryRunner.query(`
+    // ─── Companies (belong to a branch) ────────────────────────
+
+    await queryRunner.query(`
+            CREATE TABLE IF NOT EXISTS "companies" (
+                "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+                "name" character varying NOT NULL,
+                "abbreviation" character varying NOT NULL,
+                "address" character varying,
+                "logo_url" character varying,
+                "branch_id" uuid,
+                "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+                "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
+                CONSTRAINT "UQ_companies_name" UNIQUE ("name"),
+                CONSTRAINT "UQ_companies_abbr" UNIQUE ("abbreviation"),
+                CONSTRAINT "PK_companies" PRIMARY KEY ("id"),
+                CONSTRAINT "FK_companies_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL
+            )
+        `);
+
+    // ─── Departments (belong to a company) ─────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "departments" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "name" character varying NOT NULL,
                 "company_id" uuid,
                 "head_id" uuid,
+                "assistant_head_id" uuid,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
                 CONSTRAINT "PK_departments" PRIMARY KEY ("id")
             )
         `);
 
-        // Composite unique index for department name per company
-        await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS "UQ_department_company_name" ON "departments" ("company_id", "name")`);
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "UQ_department_company_name" ON "departments" ("company_id", "name")`,
+    );
 
-        // Users
-        await queryRunner.query(`
+    // ─── Users ─────────────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "users" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "email" character varying NOT NULL,
                 "name" character varying NOT NULL,
                 "password" character varying NOT NULL,
                 "profile_pic_url" character varying,
+                "signature_url" character varying,
                 "phone" character varying,
                 "address" character varying,
                 "dob" date,
                 "staff_id" character varying,
                 "role" "users_role_enum" NOT NULL DEFAULT 'GENERAL_STAFF',
+                "position" "users_position_enum" NOT NULL DEFAULT 'FULLTIME',
+                "permissions" text[] NOT NULL DEFAULT '{}',
                 "stats_score" double precision NOT NULL DEFAULT 100,
                 "leave_balance" integer NOT NULL DEFAULT 20,
                 "is_active" boolean NOT NULL DEFAULT true,
@@ -126,11 +152,14 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        // Index on email for fast lookups
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_USER_EMAIL" ON "users" ("email")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_USER_EMAIL" ON "users" ("email")`,
+    );
 
-        // Add FKs that depend on existing tables
-        await queryRunner.query(`
+    // ─── Foreign keys (deferred because of circular deps) ──────
+
+    // departments -> companies
+    await queryRunner.query(`
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_departments_company') THEN
                     ALTER TABLE "departments" ADD CONSTRAINT "FK_departments_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE;
@@ -138,40 +167,8 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             END $$;
         `);
 
-        await queryRunner.query(`
-            DO $$ BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_department') THEN
-                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_department" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL;
-                END IF;
-            END $$;
-        `);
-
-        await queryRunner.query(`
-            DO $$ BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_branch') THEN
-                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL;
-                END IF;
-            END $$;
-        `);
-
-        await queryRunner.query(`
-            DO $$ BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_reports_to') THEN
-                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_reports_to" FOREIGN KEY ("reports_to_id") REFERENCES "users"("id") ON DELETE SET NULL;
-                END IF;
-            END $$;
-        `);
-
-        await queryRunner.query(`
-            DO $$ BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_company') THEN
-                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE SET NULL;
-                END IF;
-            END $$;
-        `);
-
-        // Now departments.head -> users FK (users table exists now)
-        await queryRunner.query(`
+    // departments -> users (head)
+    await queryRunner.query(`
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_departments_head') THEN
                     ALTER TABLE "departments" ADD CONSTRAINT "FK_departments_head" FOREIGN KEY ("head_id") REFERENCES "users"("id") ON DELETE SET NULL;
@@ -179,8 +176,54 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             END $$;
         `);
 
-        // Attendances
-        await queryRunner.query(`
+    // departments -> users (assistant head)
+    await queryRunner.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_departments_assistant_head') THEN
+                    ALTER TABLE "departments" ADD CONSTRAINT "FK_departments_assistant_head" FOREIGN KEY ("assistant_head_id") REFERENCES "users"("id") ON DELETE SET NULL;
+                END IF;
+            END $$;
+        `);
+
+    // users -> departments
+    await queryRunner.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_department') THEN
+                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_department" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL;
+                END IF;
+            END $$;
+        `);
+
+    // users -> branches
+    await queryRunner.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_branch') THEN
+                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL;
+                END IF;
+            END $$;
+        `);
+
+    // users -> users (reports to)
+    await queryRunner.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_reports_to') THEN
+                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_reports_to" FOREIGN KEY ("reports_to_id") REFERENCES "users"("id") ON DELETE SET NULL;
+                END IF;
+            END $$;
+        `);
+
+    // users -> companies
+    await queryRunner.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='FK_users_company') THEN
+                    ALTER TABLE "users" ADD CONSTRAINT "FK_users_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE SET NULL;
+                END IF;
+            END $$;
+        `);
+
+    // ─── Attendances ───────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "attendances" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
@@ -201,8 +244,9 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        // Leave requests
-        await queryRunner.query(`
+    // ─── Leave requests ────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "leave_requests" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
@@ -221,8 +265,9 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        // Messages
-        await queryRunner.query(`
+    // ─── Messages ──────────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "messages" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "sender_id" uuid NOT NULL,
@@ -236,12 +281,19 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_SENDER" ON "messages" ("sender_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_RECEIVER" ON "messages" ("receiver_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_MESSAGE_CREATED_AT" ON "messages" ("created_at")`,
+    );
 
-        // Notifications
-        await queryRunner.query(`
+    // ─── Notifications ─────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "notifications" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
@@ -259,10 +311,13 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_NOTIFICATION_USER_READ" ON "notifications" ("user_id", "is_read")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_NOTIFICATION_USER_READ" ON "notifications" ("user_id", "is_read")`,
+    );
 
-        // Tickets
-        await queryRunner.query(`
+    // ─── Tickets ───────────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "tickets" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "issuer_id" uuid,
@@ -282,17 +337,25 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_TARGET" ON "tickets" ("target_user_id")`);
-        await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_TICKET_STATUS" ON "tickets" ("status")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_TICKET_TARGET" ON "tickets" ("target_user_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_TICKET_STATUS" ON "tickets" ("status")`,
+    );
 
-        // Work logs
-        await queryRunner.query(`
+    // ─── Work logs ─────────────────────────────────────────────
+
+    await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "work_logs" (
                 "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                 "user_id" uuid NOT NULL,
                 "date" date NOT NULL,
                 "achievements" text NOT NULL,
                 "challenges" text,
+                "workplace" "work_logs_workplace_enum" NOT NULL DEFAULT 'office',
+                "signature_url" text,
+                "signed_at" TIMESTAMP,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
                 CONSTRAINT "PK_work_logs" PRIMARY KEY ("id"),
@@ -300,63 +363,82 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
             )
         `);
 
-        await queryRunner.query(`CREATE UNIQUE INDEX IF NOT EXISTS "UQ_worklog_user_date" ON "work_logs" ("user_id", "date")`);
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "UQ_worklog_user_date" ON "work_logs" ("user_id", "date")`,
+    );
+  }
 
-        // Ensure any older unique on department name alone doesn't interfere
-        await queryRunner.query(`
-            DO $$ BEGIN
-                IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='uq_department_name') THEN
-                    NULL;
-                END IF;
-            END $$;
-        `);
-    }
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Drop in reverse order
+    await queryRunner.query(
+      `ALTER TABLE "work_logs" DROP CONSTRAINT IF EXISTS "FK_work_logs_user"`,
+    );
+    await queryRunner.query(`DROP INDEX IF EXISTS "UQ_worklog_user_date"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "work_logs"`);
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        // Drop in reverse order
-        await queryRunner.query(`ALTER TABLE "work_logs" DROP CONSTRAINT IF EXISTS "FK_work_logs_user"`);
-        await queryRunner.query(`DROP INDEX IF EXISTS "UQ_worklog_user_date"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "work_logs"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_TICKET_STATUS"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_TICKET_TARGET"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "tickets"`);
 
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_TICKET_STATUS"`);
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_TICKET_TARGET"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "tickets"`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "IDX_NOTIFICATION_USER_READ"`,
+    );
+    await queryRunner.query(`DROP TABLE IF EXISTS "notifications"`);
 
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_NOTIFICATION_USER_READ"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "notifications"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_CREATED_AT"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_RECEIVER"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_SENDER"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "messages"`);
 
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_CREATED_AT"`);
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_RECEIVER"`);
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_MESSAGE_SENDER"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "messages"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "leave_requests"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "attendances"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "leave_requests"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "attendances"`);
+    await queryRunner.query(
+      `ALTER TABLE "departments" DROP CONSTRAINT IF EXISTS "FK_departments_assistant_head"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "departments" DROP CONSTRAINT IF EXISTS "FK_departments_head"`,
+    );
 
-        // Drop FK from departments to users if exists
-        await queryRunner.query(`ALTER TABLE "departments" DROP CONSTRAINT IF EXISTS "FK_departments_head"`);
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_company"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_reports_to"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_branch"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_department"`,
+    );
 
-        await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_company"`);
-        await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_reports_to"`);
-        await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_branch"`);
-        await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "FK_users_department"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_USER_EMAIL"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
 
-        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_USER_EMAIL"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
+    await queryRunner.query(
+      `ALTER TABLE "departments" DROP CONSTRAINT IF EXISTS "FK_departments_company"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "UQ_department_company_name"`,
+    );
+    await queryRunner.query(`DROP TABLE IF EXISTS "departments"`);
 
-        await queryRunner.query(`ALTER TABLE "departments" DROP CONSTRAINT IF EXISTS "FK_departments_company"`);
-        await queryRunner.query(`DROP INDEX IF EXISTS "UQ_department_company_name"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "departments"`);
+    await queryRunner.query(
+      `ALTER TABLE "companies" DROP CONSTRAINT IF EXISTS "FK_companies_branch"`,
+    );
+    await queryRunner.query(`DROP TABLE IF EXISTS "companies"`);
 
-        await queryRunner.query(`DROP TABLE IF EXISTS "branches"`);
-        await queryRunner.query(`DROP TABLE IF EXISTS "companies"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "branches"`);
 
-        // Drop enum types
-        await queryRunner.query(`DROP TYPE IF EXISTS "notifications_type_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "tickets_status_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_status_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_type_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "attendances_status_enum"`);
-        await queryRunner.query(`DROP TYPE IF EXISTS "users_role_enum"`);
-    }
+    // Drop enum types
+    await queryRunner.query(`DROP TYPE IF EXISTS "work_logs_workplace_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "notifications_type_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "tickets_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "leave_requests_type_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "attendances_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "users_position_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "users_role_enum"`);
+  }
 }

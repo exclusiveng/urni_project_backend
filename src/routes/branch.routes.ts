@@ -6,23 +6,24 @@ import {
     updateBranch,
     deleteBranch
 } from "../controllers/branch.controller";
-import { protect, restrictTo } from "../middleware/auth.middleware";
-import { UserRole } from "../entities/User";
+import { protect } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
+import { Permission } from "../entities/Permission";
 
 const router = Router();
 
-// Protect all routes
 router.use(protect);
 
-// Public (Authenticated): View branches
-router.get("/", getAllBranches);
+// View branches - usually needed for dropdowns, so maybe open to all auth users?
+// Or we can require a basic permission. Let's stick to no specific permission for reading lists
+// if we want general staff to pick a branch?
+// Actually, `getAllBranches` is often public-ish for authenticated users.
+router.get("/", getAllBranches); 
 router.get("/:id", getBranchById);
 
-// Admin Only: Create, Update, Delete branches
-router.use(restrictTo(UserRole.CEO, UserRole.ME_QC));
-
-router.post("/", createBranch);
-router.patch("/:id", updateBranch);
-router.delete("/:id", deleteBranch);
+// Manage branches
+router.post("/", requirePermission(Permission.BRANCH_CREATE), createBranch);
+router.patch("/:id", requirePermission(Permission.BRANCH_UPDATE), updateBranch);
+router.delete("/:id", requirePermission(Permission.BRANCH_DELETE), deleteBranch);
 
 export default router;

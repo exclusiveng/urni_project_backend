@@ -20,6 +20,7 @@ import lookupRoutes from "./routes/lookups.route";
 import appraisalRoutes from "./routes/appraisal.routes";
 import notificationRoutes from "./routes/notification.routes";
 import companyRoutes from "./routes/company.routes";
+import permissionRoutes from "./routes/permission.routes";
 import { attachNotifier } from "./middleware/notification.middleware";
 import { randomUUID } from "crypto";
 import winston from "winston";
@@ -157,6 +158,7 @@ app.use("/api/companies", companyRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/lookups", lookupRoutes);
 app.use("/api/appraisals", appraisalRoutes);
+app.use("/api/permissions", permissionRoutes); // <--- NEW MOUNT
 
 // 6. Serve Static Files
 app.use("/public", express.static(path.join(process.cwd(), "public")));

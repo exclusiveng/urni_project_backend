@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToOne, JoinColumn } from "typeorm";
 import { Department } from "./Department";
 import { User } from "./User";
+import { Branch } from "./Branch";
 
 @Entity("companies")
 export class Company {
@@ -18,6 +19,14 @@ export class Company {
 
     @Column({ nullable: true })
     logo_url: string;
+
+    // Branch this company belongs to
+    @ManyToOne(() => Branch, (branch) => branch.companies, { nullable: true })
+    @JoinColumn({ name: "branch_id" })
+    branch: Branch;
+
+    @Column({ nullable: true })
+    branch_id: string;
 
     // Departments in this company
     @OneToMany(() => Department, (dept) => dept.company)

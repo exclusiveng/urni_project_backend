@@ -8,14 +8,16 @@ import { User, UserRole } from "../entities/User";
 const repo = AppDataSource.getRepository(Notification);
 
 export class NotificationService {
-  static async notifyAdmins(req: Request, title: string, body: string, payload?: any) {
+  static async notifyAdmins(
+    req: Request,
+    title: string,
+    body: string,
+    payload?: any,
+  ) {
     try {
       const userRepo = AppDataSource.getRepository(User);
       const admins = await userRepo.find({
-        where: [
-          { role: UserRole.CEO },
-          { role: UserRole.ME_QC }
-        ]
+        where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
       });
 
       for (const admin of admins) {
@@ -23,7 +25,7 @@ export class NotificationService {
           type: NotificationType.GENERIC,
           title,
           body,
-          payload
+          payload,
         });
       }
     } catch (err) {
@@ -31,14 +33,28 @@ export class NotificationService {
     }
   }
 
-  static async createNotification({ userId, actorId, type = NotificationType.GENERIC, title, body, payload, emailOptions }: {
+  static async createNotification({
+    userId,
+    actorId,
+    type = NotificationType.GENERIC,
+    title,
+    body,
+    payload,
+    emailOptions,
+  }: {
     userId: string;
     actorId?: string | null;
     type?: NotificationType;
     title: string;
     body: string;
     payload?: any;
-    emailOptions?: { send?: boolean; subject?: string; template?: string; to?: string; context?: any };
+    emailOptions?: {
+      send?: boolean;
+      subject?: string;
+      template?: string;
+      to?: string;
+      context?: any;
+    };
   }) {
     const notification = repo.create({
       user_id: userId,
@@ -71,9 +87,21 @@ export class NotificationService {
         const to = emailOptions.to || user?.email;
         if (to) {
           if (emailOptions.template) {
-            await mailService.sendTemplate(to, emailOptions.subject || title, emailOptions.template, emailOptions.context || { name: user?.name || to.split('@')[0], body });
+            await mailService.sendTemplate(
+              to,
+              emailOptions.subject || title,
+              emailOptions.template,
+              emailOptions.context || {
+                name: user?.name || to.split("@")[0],
+                body,
+              },
+            );
           } else {
-            await mailService.sendMail({ to, subject: emailOptions.subject || title, text: body });
+            await mailService.sendMail({
+              to,
+              subject: emailOptions.subject || title,
+              text: body,
+            });
           }
         }
       } catch (err) {
@@ -97,10 +125,82 @@ export class NotificationService {
   }
 
   static async markAsRead(notificationId: string, userId: string) {
-    const notif = await repo.findOne({ where: { id: notificationId, user_id: userId } });
+    const notif = await repo.findOne({
+      where: { id: notificationId, user_id: userId },
+    });
     if (!notif) throw new Error("Notification not found");
     notif.is_read = true;
     await repo.save(notif);
     return notif;
+  }
+
+  static async markAllAsRead(userId: string) {
+    // efficient update
+    await repo.update({ user_id: userId, is_read: false }, { is_read: true });
+  }
+
+  static async sendBroadcast({
+    title,
+    body,
+    role,
+    actorId,
+    payload,
+  }: {
+    title: string;
+    body: string;
+    role?: UserRole;
+    actorId?: string;
+    payload?: any;
+  }) {
+    const userRepo = AppDataSource.getRepository(User);
+
+    // Find target users
+    const query = userRepo
+      .createQueryBuilder("user")
+      .where("user.is_active = :active", { active: true });
+
+    if (role) {
+      query.andWhere("user.role = :role", { role });
+    }
+
+    const users = await query.getMany();
+
+    if (users.length === 0) return { count: 0 };
+
+    // Batch create notifications
+    const notifications = users.map((user) =>
+      repo.create({
+        user_id: user.id,
+        actor_id: actorId || null,
+        type: NotificationType.GENERIC,
+        title,
+        body,
+        payload,
+      }),
+    );
+
+    // Save in chunks to avoid massive insert issues if thousands of users
+    // TypeORM save can handle arrays, but let's be safe with chunking if needed.
+    // For now, standard save is likely fine for < 10k users.
+    await repo.save(notifications);
+
+    // Socket Emission
+    const io = getIO();
+
+    // Efficiency: If broadcasting to all, maybe we can emit to a global room?
+    // But currently we only have `user_<id>` rooms.
+    // If we have a "global" room logic in socket.ts we could use it.
+    // Assuming we don't, we might need to loop interactively or just rely on next fetch.
+    // Iterating emits for 1000+ users might be slow.
+    // Optimized approach: Emit to specific rooms in parallel (non-blocking).
+
+    // Fire and forget socket events
+    setImmediate(() => {
+      notifications.forEach((n) => {
+        io.to(`user_${n.user_id}`).emit("notification", n);
+      });
+    });
+
+    return { count: notifications.length };
   }
 }

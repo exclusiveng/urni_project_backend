@@ -3,15 +3,25 @@ import { Department } from "./Department";
 import { Branch } from "./Branch";
 import { Company } from "./Company";
 
-// The UserRole enum has been updated to use more descriptive and professional role names.
+// Login roles — determines the user's access tier.
+// DEPARTMENT_HEAD and ASST_DEPARTMENT_HEAD are promotion-only (never assigned at registration).
 export enum UserRole {
-  CEO = "CEO",
-  ME_QC = "ME_QC",
-  ADMIN = "ADMIN",
-  DEPARTMENT_HEAD = "DEPARTMENT_HEAD",
-  GENERAL_STAFF = "GENERAL_STAFF",
+  CEO = "CEO",                              // God mode — controls entire system
+  MD = "MD",                                // Manages companies within their branch
+  ADMIN = "ADMIN",                          // Central overseer across the system
+  HR = "HR",                                // Human resources management
+  DEPARTMENT_HEAD = "DEPARTMENT_HEAD",       // Controls their department (promotion only)
+  ASST_DEPARTMENT_HEAD = "ASST_DEPARTMENT_HEAD", // Assists department head (promotion only)
+  GENERAL_STAFF = "GENERAL_STAFF",          // Default registration role
+}
+
+// Staff position — describes employment type, separate from login role.
+export enum UserPosition {
+  FULLTIME = "FULLTIME",
+  CONTRACT = "CONTRACT",
   CORPER = "CORPER",
-  INTERN = "INTERN",
+  GRADUATE_INTERN = "GRADUATE_INTERN",
+  STUDENT_INTERN = "STUDENT_INTERN",
 }
 
 @Index("IDX_USER_EMAIL", ["email"])
@@ -56,6 +66,18 @@ export class User {
     default: UserRole.GENERAL_STAFF,
   })
   role: UserRole;
+
+  @Column({
+    type: "enum",
+    enum: UserPosition,
+    default: UserPosition.FULLTIME,
+  })
+  position: UserPosition;
+
+  // Granular, addable/removable permission strings (e.g. "company:create").
+  // These supplement the default permissions granted by the user's role.
+  @Column("text", { array: true, default: [] })
+  permissions: string[];
 
   @Column({ type: "float", default: 100.0 })
   stats_score: number;
