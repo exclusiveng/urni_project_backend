@@ -27,12 +27,40 @@ export const createBranch = async (
 };
 
 export const getAllBranches = async (
-  _req: Request,
+  req: Request,
   res: Response,
 ): Promise<Response | void> => {
   try {
-    const branches = await branchRepo.find({ relations: ["companies"] });
-    return res.status(200).json({ status: "success", data: { branches } });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [branches, total] = await branchRepo.findAndCount({
+      relations: ["companies"],
+      take: limit,
+      skip: skip,
+      order: { id: "ASC" },
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        branches,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }

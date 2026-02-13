@@ -4,7 +4,8 @@ import { Department } from "../entities/Department";
 import { User, UserRole } from "../entities/User";
 import { Company } from "../entities/Company";
 import { AuthRequest } from "../middleware/auth.middleware";
-// import { NotificationService } from "../services/notification.service";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const deptRepo = AppDataSource.getRepository(Department);
 const userRepo = AppDataSource.getRepository(User);
@@ -44,6 +45,18 @@ export const createDepartment = async (
     }
 
     await deptRepo.save(dept);
+
+    // Notify Head if assigned
+    if (head_id) {
+      await NotificationService.createNotification({
+        userId: head_id,
+        title: "New Assignment",
+        body: `You have been appointed as the Head of ${name} Department.`,
+        type: NotificationType.GENERIC,
+        payload: { departmentId: dept.id },
+      });
+    }
+
     return res
       .status(201)
       .json({ status: "success", data: { department: dept } });
@@ -53,15 +66,48 @@ export const createDepartment = async (
 };
 
 export const getAllDepartments = async (
-  _req: Request,
+  req: Request,
   res: Response,
 ): Promise<Response | void> => {
-  // ... existing implementation (pagination etc)
   try {
-    const depts = await deptRepo.find({ relations: ["head", "company"] });
-    return res
-      .status(200)
-      .json({ status: "success", data: { departments: depts } });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [depts, total] = await deptRepo.findAndCount({
+      relations: ["head", "company"],
+      take: limit,
+      skip: skip,
+      order: { id: "ASC" },
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        departments: depts.map((d) => ({
+          ...d,
+          head: d.head
+            ? { id: d.head.id, name: d.head.name, email: d.head.email }
+            : null,
+          company: d.company
+            ? { id: d.company.id, name: d.company.name }
+            : null,
+        })),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -78,9 +124,30 @@ export const getDepartmentById = async (
       relations: ["head", "assistantHead", "employees"],
     });
     if (!dept) return res.status(404).json({ message: "Department not found" });
-    return res
-      .status(200)
-      .json({ status: "success", data: { department: dept } });
+    return res.status(200).json({
+      status: "success",
+      data: {
+        department: {
+          ...dept,
+          head: dept.head
+            ? { id: dept.head.id, name: dept.head.name, email: dept.head.email }
+            : null,
+          assistantHead: dept.assistantHead
+            ? {
+                id: dept.assistantHead.id,
+                name: dept.assistantHead.name,
+                email: dept.assistantHead.email,
+              }
+            : null,
+          employees: dept.employees?.map((e) => ({
+            id: e.id,
+            name: e.name,
+            email: e.email,
+            role: e.role,
+          })),
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -123,12 +190,24 @@ export const setDepartmentHead = async (
     await userRepo.save(user);
     await deptRepo.save(dept);
 
-    return res
-      .status(200)
-      .json({
-        message: "Department Head set successfully",
-        data: { department: dept },
-      });
+    // Notify User
+    await NotificationService.createNotification({
+      userId: user.id,
+      title: "New Assignment",
+      body: `You have been appointed as the Head of ${dept.name} Department.`,
+      type: NotificationType.GENERIC,
+      payload: { departmentId: dept.id },
+    });
+
+    return res.status(200).json({
+      message: "Department Head set successfully",
+      data: {
+        department: {
+          ...dept,
+          head: { id: user.id, name: user.name, email: user.email },
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -171,12 +250,24 @@ export const setAssistantHead = async (
     await userRepo.save(user);
     await deptRepo.save(dept);
 
-    return res
-      .status(200)
-      .json({
-        message: "Assistant Department Head set successfully",
-        data: { department: dept },
-      });
+    // Notify User
+    await NotificationService.createNotification({
+      userId: user.id,
+      title: "New Assignment",
+      body: `You have been appointed as the Assistant Head of ${dept.name} Department.`,
+      type: NotificationType.GENERIC,
+      payload: { departmentId: dept.id },
+    });
+
+    return res.status(200).json({
+      message: "Assistant Department Head set successfully",
+      data: {
+        department: {
+          ...dept,
+          assistantHead: { id: user.id, name: user.name, email: user.email },
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -227,9 +318,24 @@ export const addUserToDepartment = async (
     user.department = dept;
     await userRepo.save(user);
 
-    return res
-      .status(200)
-      .json({ message: "User added to department", data: { user } });
+    // Notify User
+    await NotificationService.createNotification({
+      userId: user.id,
+      title: "Department Updated",
+      body: `You have been added to the ${dept.name} Department.`,
+      type: NotificationType.GENERIC,
+      payload: { departmentId: dept.id },
+    });
+
+    return res.status(200).json({
+      message: "User added to department",
+      data: {
+        user: {
+          ...user,
+          department: { id: dept.id, name: dept.name },
+        },
+      },
+    });
   } catch (e: any) {
     return res.status(500).json({ message: e.message });
   }

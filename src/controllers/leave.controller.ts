@@ -1,54 +1,58 @@
 import { Response } from "express";
 import { AppDataSource } from "../../database/data-source";
+import { Department } from "../entities/Department";
 import { LeaveRequest, LeaveStatus } from "../entities/LeaveRequest";
 import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const leaveRepo = AppDataSource.getRepository(LeaveRequest);
 const userRepo = AppDataSource.getRepository(User);
+const deptRepo = AppDataSource.getRepository(Department);
 
-// Helper: Determine next approver based on current user role
 const getNextApprover = async (currentUser: User): Promise<User | null> => {
-  // 1. If user is General Staff/Intern/etc -> Reports To (which should be Asst Head or Head)
-  // 2. If user is Asst Head -> Head
-  // 3. If user is Head -> HR
-  // 4. If user is HR -> MD/Admin
+  // 1. Staff and Assistant Heads report to Department Head
+  if (
+    currentUser.role === UserRole.GENERAL_STAFF ||
+    currentUser.role === UserRole.ASST_DEPARTMENT_HEAD
+  ) {
+    const dept = await deptRepo.findOne({
+      where: { id: currentUser.department_id },
+      relations: ["head"],
+    });
+    if (dept?.head) return dept.head;
 
-  if (currentUser.reportsTo) return currentUser.reportsTo;
-
-  // Fallback logic if reportsTo is not set explicitly (based on hierarchy)
-  const dept = currentUser.department;
-  if (!dept) return null;
-
-  if (currentUser.role === UserRole.ASST_DEPARTMENT_HEAD) {
-    // Find Dept Head
-    if (dept.head) return dept.head;
-    // If no head, escalate to HR/Admin?
-    // Query for an HR
-    return await userRepo.findOne({ where: { role: UserRole.HR as any } });
+    // Fallback: if no Dept Head, escalate to HR
+    return await userRepo.findOne({ where: { role: UserRole.HR } });
   }
 
+  // 2. Department Head reports to HR
   if (currentUser.role === UserRole.DEPARTMENT_HEAD) {
-    // Escalate to HR
-    return await userRepo.findOne({ where: { role: UserRole.HR as any } });
+    return await userRepo.findOne({ where: { role: UserRole.HR } });
   }
 
+  // 3. HR reports to MD
   if (currentUser.role === UserRole.HR) {
-    // Escalate to MD or Admin
-    return await userRepo.findOne({ where: { role: UserRole.MD as any } });
+    const md = await userRepo.findOne({ where: { role: UserRole.MD } });
+    if (md) return md;
+    // Fallback to Admin if no MD
+    return await userRepo.findOne({ where: { role: UserRole.ADMIN } });
   }
 
-  // Default for staff: try finding Asst Head, then Head
-  if (dept.assistantHead) return dept.assistantHead;
-  if (dept.head) return dept.head;
+  // 4. MD reports to Admin
+  if (currentUser.role === UserRole.MD) {
+    return await userRepo.findOne({ where: { role: UserRole.ADMIN } });
+  }
 
+  // Admin and CEO are terminal or review-only.
   return null;
 };
 
 export const requestLeave = async (
   req: AuthRequest,
   res: Response,
-): Promise<Response | void> => {
+): Promise<void> => {
   try {
     const { type, reason, start_date, end_date } = req.body;
     const user = req.user!;
@@ -68,9 +72,19 @@ export const requestLeave = async (
 
     await leaveRepo.save(leave);
 
-    // Notify approver logic here...
+    // Notify approver logic
+    if (nextApprover) {
+      await NotificationService.createNotification({
+        userId: nextApprover.id,
+        actorId: user.id,
+        title: "New Leave Request",
+        body: `${user.name} has requested leave from ${new Date(start_date).toLocaleDateString()} to ${new Date(end_date).toLocaleDateString()}.`,
+        type: NotificationType.LEAVE,
+        payload: { leaveId: leave.id },
+      });
+    }
 
-    return res.status(201).json({ status: "success", data: { leave } });
+    res.status(201).json({ status: "success", data: { leave } });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -79,7 +93,7 @@ export const requestLeave = async (
 export const respondToLeave = async (
   req: AuthRequest,
   res: Response,
-): Promise<Response | void> => {
+): Promise<void> => {
   try {
     const { id } = req.params;
     const { status, remarks } = req.body; // Approved or Rejected
@@ -89,18 +103,19 @@ export const respondToLeave = async (
       where: { id },
       relations: ["user", "current_approver"],
     });
-    if (!leave)
-      return res.status(404).json({ message: "Leave request not found" });
+    if (!leave) {
+      res.status(404).json({ message: "Leave request not found" });
+      return;
+    }
 
     if (
       leave.current_approver_id !== approver.id &&
       approver.role !== UserRole.CEO
     ) {
-      return res
-        .status(403)
-        .json({
-          message: "You are not the current approver for this request.",
-        });
+      res.status(403).json({
+        message: "You are not the current approver for this request.",
+      });
+      return;
     }
 
     if (status === LeaveStatus.REJECTED) {
@@ -109,8 +124,10 @@ export const respondToLeave = async (
         `Rejected by ${approver.name} (${approver.role}): ${remarks}`,
       );
       leave.current_approver = null as any;
+      leave.current_approver_id = null;
       await leaveRepo.save(leave);
-      return res.status(200).json({ message: "Leave rejected" });
+      res.status(200).json({ message: "Leave rejected" });
+      return;
     }
 
     // Approval Logic
@@ -118,39 +135,58 @@ export const respondToLeave = async (
       `Approved by ${approver.name} (${approver.role}): ${remarks || ""}`,
     );
 
-    // Define final approval roles (e.g. HR or MD/CEO)
-    // If Approved by HR/MD/CEO/Admin -> Final Approval
-    const finalApprovers = [
-      UserRole.HR,
-      UserRole.MD,
-      UserRole.ADMIN,
-      UserRole.CEO,
-    ];
-    if (finalApprovers.includes(approver.role)) {
+    // Final Approval Roles: Logic depends on the hierarchy.
+    // MD and Admin are typically the final stops.
+    const terminalRoles = [UserRole.MD, UserRole.ADMIN];
+
+    // If the CURRENT approver is one of these roles, it's final.
+    if (terminalRoles.includes(approver.role)) {
       leave.status = LeaveStatus.APPROVED;
-      leave.current_approver = null as any;
-      // deduct balance logic
+      leave.current_approver_id = null;
+
+      // Deduct balance logic
       const requester = await userRepo.findOne({
         where: { id: leave.user_id },
       });
       if (requester) {
-        requester.leave_balance -= 1; // Simplify calculation for now
+        requester.leave_balance -= 1; // Simplified: should ideally calculate work days
         await userRepo.save(requester);
       }
     } else {
       // Escalate
       const next = await getNextApprover(approver);
       if (next) {
-        leave.current_approver = next;
+        leave.current_approver_id = next.id;
+
+        // Notify next approver
+        await NotificationService.createNotification({
+          userId: next.id,
+          actorId: approver.id,
+          title: "Leave Request Escalated",
+          body: `A leave request from ${leave.user.name} has been approved by ${approver.name} and now requires your attention.`,
+          type: NotificationType.LEAVE,
+          payload: { leaveId: leave.id },
+        });
       } else {
-        // No one higher? Auto-approve? Or wait?
-        // Let's mark approved if no higher authority found (edge case)
+        // No higher authority found -> Treat as final approval
         leave.status = LeaveStatus.APPROVED;
+        leave.current_approver_id = null;
       }
     }
 
     await leaveRepo.save(leave);
-    return res.status(200).json({ status: "success", data: { leave } });
+
+    // Notify Requester of final decision (or rejection)
+    await NotificationService.createNotification({
+      userId: leave.user_id,
+      actorId: approver.id,
+      title: `Leave Request ${leave.status}`,
+      body: `Your leave request has been ${leave.status.toLowerCase()} by ${approver.name}.`,
+      type: NotificationType.LEAVE,
+      payload: { leaveId: leave.id, status: leave.status },
+    });
+
+    res.status(200).json({ status: "success", data: { leave } });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -159,43 +195,133 @@ export const respondToLeave = async (
 export const getPendingApprovals = async (
   req: AuthRequest,
   res: Response,
-): Promise<Response | void> => {
+): Promise<void> => {
   try {
     const user = req.user!;
-    const requests = await leaveRepo.find({
-      where: { current_approver: { id: user.id }, status: LeaveStatus.PENDING },
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [requests, total] = await leaveRepo.findAndCount({
+      where: {
+        current_approver_id: user.id,
+        status: LeaveStatus.PENDING,
+      },
       relations: ["user"],
+      take: limit,
+      skip: skip,
+      order: { created_at: "DESC" },
     });
-    return res.status(200).json({ status: "success", data: { requests } });
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        requests,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (error: any) {
-    return res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };
 
 export const getMyRequests = async (
   req: AuthRequest,
   res: Response,
-): Promise<Response | void> => {
+): Promise<void> => {
   try {
     const user = req.user!;
-    const requests = await leaveRepo.find({ where: { user: { id: user.id } } });
-    return res.status(200).json({ status: "success", data: { requests } });
+    const { status } = req.query;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const where: any = { user_id: user.id };
+    if (status) {
+      where.status = status;
+    }
+
+    const [requests, total] = await leaveRepo.findAndCount({
+      where,
+      relations: ["current_approver"],
+      take: limit,
+      skip: skip,
+      order: { created_at: "DESC" },
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        requests,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (error: any) {
-    return res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };
 
 // Admin view all
 export const getAllRequests = async (
-  _req: AuthRequest,
+  req: AuthRequest,
   res: Response,
-): Promise<Response | void> => {
+): Promise<void> => {
   try {
-    const requests = await leaveRepo.find({
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [requests, total] = await leaveRepo.findAndCount({
       relations: ["user", "current_approver"],
+      take: limit,
+      skip: skip,
+      order: { created_at: "DESC" },
     });
-    return res.status(200).json({ status: "success", data: { requests } });
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        requests,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (e: any) {
-    return res.status(500).json({ message: e.message });
+    res.status(500).json({ message: e.message });
   }
 };

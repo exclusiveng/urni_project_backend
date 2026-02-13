@@ -21,7 +21,9 @@ export class NotificationService {
       });
 
       for (const admin of admins) {
-        req.notify?.(admin.id, {
+        await this.createNotification({
+          userId: admin.id,
+          actorId: (req as any).user?.id || null,
           type: NotificationType.GENERIC,
           title,
           body,

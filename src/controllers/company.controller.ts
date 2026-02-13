@@ -33,11 +33,9 @@ export const createCompany = async (
       where: [{ name }, { abbreviation }],
     });
     if (existing) {
-      return res
-        .status(400)
-        .json({
-          message: "Company with this name or abbreviation already exists.",
-        });
+      return res.status(400).json({
+        message: "Company with this name or abbreviation already exists.",
+      });
     }
 
     const company = companyRepo.create({
@@ -70,16 +68,37 @@ export const getAllCompanies = async (req: AuthRequest, res: Response) => {
       whereClause = { branch: { id: user.branch_id } };
     }
 
-    // General staff etc. might only see their own company? Or all?
-    // Let's assume view_all permission grants access to all, otherwise scoped.
-    // For now, let's allow viewing all if they have the permission, filtered by branch if MD.
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
 
-    const companies = await companyRepo.find({
+    const [companies, total] = await companyRepo.findAndCount({
       where: whereClause,
       relations: ["branch"],
+      take: limit,
+      skip: skip,
+      order: { id: "ASC" },
     });
 
-    return res.status(200).json({ status: "success", data: { companies } });
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        companies,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -150,13 +169,40 @@ export const getCompanyEmployees = async (
   req: Request,
   res: Response,
 ): Promise<Response | void> => {
-  // ... basic fetch
   try {
     const { id } = req.params;
-    const employees = await AppDataSource.getRepository(User).find({
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [employees, total] = await AppDataSource.getRepository(
+      User,
+    ).findAndCount({
       where: { company_id: id },
+      take: limit,
+      skip: skip,
+      order: { id: "ASC" },
     });
-    return res.status(200).json({ status: "success", data: { employees } });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        employees,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
   } catch (e: any) {
     return res.status(500).json({ message: e.message });
   }

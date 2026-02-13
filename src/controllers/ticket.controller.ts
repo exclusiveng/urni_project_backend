@@ -3,6 +3,8 @@ import { AppDataSource } from "../../database/data-source";
 import { Ticket, TicketSeverity, TicketStatus } from "../entities/Ticket";
 import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const ticketRepo = AppDataSource.getRepository(Ticket);
 const userRepo = AppDataSource.getRepository(User);
@@ -59,8 +61,10 @@ export const issueTicket = async (
     await ticketRepo.save(ticket);
 
     // Notify the target user about the new ticket
-    req.notify?.(target_user_id, {
-      type: "TICKET",
+    await NotificationService.createNotification({
+      userId: target_user_id,
+      actorId: issuer.id,
+      type: NotificationType.TICKET,
       title: `New ticket: ${ticket.title}`,
       body: `${is_anonymous ? "An anonymous report" : `${issuer.name} has issued a ticket`} regarding: ${ticket.title}`,
       payload: { ticketId: ticket.id },
@@ -78,8 +82,9 @@ export const issueTicket = async (
 
     // Confirm to issuer (if not anonymous)
     if (!is_anonymous) {
-      req.notify?.(issuer.id, {
-        type: "TICKET",
+      await NotificationService.createNotification({
+        userId: issuer.id,
+        type: NotificationType.TICKET,
         title: "Ticket submitted",
         body: `Your ticket titled \"${ticket.title}\" has been submitted.`,
         payload: { ticketId: ticket.id },
@@ -220,8 +225,10 @@ export const respondToTicket = async (
     if (req.body.action === "ACKNOWLEDGE" || req.body.action === "RESOLVE") {
       // Notify issuer (if present and not anonymous)
       if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
-        req.notify?.(ticketFresh.issuer_id, {
-          type: "TICKET",
+        await NotificationService.createNotification({
+          userId: ticketFresh.issuer_id,
+          actorId: user.id,
+          type: NotificationType.TICKET,
           title: `Ticket update: ${ticketFresh.title}`,
           body: `${user.name} ${req.body.action === "RESOLVE" ? "resolved" : "acknowledged"} the ticket.`,
           payload: { ticketId },
@@ -239,8 +246,10 @@ export const respondToTicket = async (
       }
 
       // Notify the accused (confirmation)
-      req.notify?.(ticketFresh!.target_user_id, {
-        type: "TICKET",
+      await NotificationService.createNotification({
+        userId: ticketFresh!.target_user_id,
+        actorId: user.id,
+        type: NotificationType.TICKET,
         title: "Ticket updated",
         body: `Your ticket was ${req.body.action === "RESOLVE" ? "resolved by an admin" : "acknowledged"}.`,
         payload: { ticketId },
@@ -269,8 +278,10 @@ export const respondToTicket = async (
     if (req.body.action === "CONTEST") {
       // Notify issuer (if present and not anonymous)
       if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
-        req.notify?.(ticketFresh.issuer_id, {
-          type: "TICKET",
+        await NotificationService.createNotification({
+          userId: ticketFresh.issuer_id,
+          actorId: user.id,
+          type: NotificationType.TICKET,
           title: `Ticket contested: ${ticketFresh.title}`,
           body: `${user.name} contested a ticket.`,
           payload: { ticketId },
@@ -292,8 +303,10 @@ export const respondToTicket = async (
         where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
       });
       for (const a of admins) {
-        req.notify?.(a.id, {
-          type: "TICKET",
+        await NotificationService.createNotification({
+          userId: a.id,
+          actorId: user.id,
+          type: NotificationType.TICKET,
           title: `Ticket contested: ${ticketFresh?.title}`,
           body: `Ticket ${ticketId} has been contested and requires review.`,
           payload: { ticketId },
@@ -318,8 +331,10 @@ export const respondToTicket = async (
 
     if (req.body.action === "VOID") {
       if (ticketFresh?.issuer_id && !ticketFresh.is_anonymous) {
-        req.notify?.(ticketFresh.issuer_id, {
-          type: "TICKET",
+        await NotificationService.createNotification({
+          userId: ticketFresh.issuer_id,
+          actorId: user.id,
+          type: NotificationType.TICKET,
           title: `Ticket voided: ${ticketFresh.title}`,
           body: `${user.name} voided the ticket.`,
           payload: { ticketId },
@@ -336,8 +351,10 @@ export const respondToTicket = async (
         });
       }
 
-      req.notify?.(ticketFresh!.target_user_id, {
-        type: "TICKET",
+      await NotificationService.createNotification({
+        userId: ticketFresh!.target_user_id,
+        actorId: user.id,
+        type: NotificationType.TICKET,
         title: `Ticket voided`,
         body: `A ticket against you has been voided.`,
         payload: { ticketId },

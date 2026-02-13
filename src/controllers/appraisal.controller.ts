@@ -4,6 +4,8 @@ import { WorkLog } from "../entities/WorkLog";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { Between } from "typeorm";
 import { User, UserRole } from "../entities/User";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const workLogRepo = AppDataSource.getRepository(WorkLog);
 const userRepo = AppDataSource.getRepository(User);
@@ -125,27 +127,35 @@ export const getAllAppraisals = async (
   req: AuthRequest,
   res: Response,
 ): Promise<Response | void> => {
-  // Admin view of ALL logs? That's huge.
-  // Maybe paginated recent logs?
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const take = parseInt(limit as string) || 20;
-    const skip = (parseInt(page as string) - 1) * take;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string) || 20),
+    );
+    const skip = (page - 1) * limit;
 
     const [logs, total] = await workLogRepo.findAndCount({
       order: { date: "DESC" },
-      take,
-      skip,
+      take: limit,
+      skip: skip,
       relations: ["user"],
     });
+
+    const totalPages = Math.ceil(total / limit);
 
     return res.status(200).json({
       status: "success",
       data: {
         logs,
-        total,
-        page: parseInt(page as string),
-        totalPages: Math.ceil(total / take),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
       },
     });
   } catch (error: any) {
@@ -267,6 +277,18 @@ export const addOwnerSignature = async (
     log.signed_at = new Date();
 
     await workLogRepo.save(log);
+
+    // Notify Supervisor/Appraiser if exists that the log has been signed
+    if (user.reportsTo) {
+      await NotificationService.createNotification({
+        userId: user.reportsTo.id,
+        actorId: user.id,
+        title: "Work Log Signed",
+        body: `${user.name} has signed their work log for ${new Date(log.date).toLocaleDateString()}.`,
+        type: NotificationType.GENERIC,
+        payload: { logId: log.id },
+      });
+    }
 
     return res.status(200).json({
       status: "success",

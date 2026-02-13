@@ -16,8 +16,7 @@ const router = Router();
 
 router.use(protect);
 
-// View companies - (MD sees branch-scoped, others might see all or none depending on logic)
-// Let's require basic view permission
+
 router.get("/", requirePermission(Permission.COMPANY_VIEW_ALL), getAllCompanies);
 router.get("/:id", requirePermission(Permission.COMPANY_VIEW_ALL), getCompanyById);
 router.get("/:id/employees", requirePermission(Permission.COMPANY_VIEW_ALL), getCompanyEmployees);

@@ -7,6 +7,8 @@ import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { appCache, CacheKeys } from "../utils/cache";
 import { isWeekend, getWeekendFilterWhereClause } from "../utils/weekendUtils";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const attendanceRepo = AppDataSource.getRepository(Attendance);
 const branchRepo = AppDataSource.getRepository(Branch);
@@ -214,11 +216,22 @@ export const clockIn = async (
 
     await attendanceRepo.save(attendance);
 
+    // Notify User
+    await NotificationService.createNotification({
+      userId: user.id,
+      title: "Clock-in Successful",
+      body: `You have clocked in at ${attendance.clock_in_time.toLocaleTimeString()}. Status: ${attendance.status}.`,
+      type: NotificationType.ATTENDANCE,
+      payload: { attendanceId: attendance.id },
+    });
+
     // Notify approver(s) when manual override is requested
     if (is_manual_override) {
       if (user.reports_to_id) {
-        req.notify?.(user.reports_to_id, {
-          type: "ATTENDANCE",
+        await NotificationService.createNotification({
+          userId: user.reports_to_id,
+          actorId: user.id,
+          type: NotificationType.ATTENDANCE,
           title: "Manual clock-in request",
           body: `${user.name} requested a manual clock-in.`,
           payload: { attendanceId: attendance.id },
@@ -228,8 +241,10 @@ export const clockIn = async (
           where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
         });
         for (const a of admins) {
-          req.notify?.(a.id, {
-            type: "ATTENDANCE",
+          await NotificationService.createNotification({
+            userId: a.id,
+            actorId: user.id,
+            type: NotificationType.ATTENDANCE,
             title: "Manual clock-in request",
             body: `${user.name} requested a manual clock-in (no manager assigned).`,
             payload: { attendanceId: attendance.id },
@@ -280,11 +295,9 @@ export const clockOut = async (
     }
 
     if (!lat || !long) {
-      return res
-        .status(400)
-        .json({
-          message: "GPS coordinates (lat, long) are required for clock-out.",
-        });
+      return res.status(400).json({
+        message: "GPS coordinates (lat, long) are required for clock-out.",
+      });
     }
 
     // 1. Run core validation queries concurrently
@@ -358,11 +371,22 @@ export const clockOut = async (
     attendance.hours_worked = hoursWorked;
     await attendanceRepo.save(attendance);
 
+    // Notify User
+    await NotificationService.createNotification({
+      userId: user.id,
+      title: "Clock-out Successful",
+      body: `You have clocked out at ${attendance.clock_out_time!.toLocaleTimeString()}. Hours worked: ${attendance.hours_worked.toFixed(2)}.`,
+      type: NotificationType.ATTENDANCE,
+      payload: { attendanceId: attendance.id },
+    });
+
     // Notify manager/admins if this was an early exit
     if (attendance.status === AttendanceStatus.EARLY_EXIT) {
       if (user.reports_to_id) {
-        req.notify?.(user.reports_to_id, {
-          type: "ATTENDANCE",
+        await NotificationService.createNotification({
+          userId: user.reports_to_id,
+          actorId: user.id,
+          type: NotificationType.ATTENDANCE,
           title: "Early exit detected",
           body: `${user.name} clocked out early (${hoursWorked} hrs).`,
           payload: { attendanceId: attendance.id },
@@ -372,8 +396,10 @@ export const clockOut = async (
           where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
         });
         for (const a of admins) {
-          req.notify?.(a.id, {
-            type: "ATTENDANCE",
+          await NotificationService.createNotification({
+            userId: a.id,
+            actorId: user.id,
+            type: NotificationType.ATTENDANCE,
             title: "Early exit detected",
             body: `${user.name} clocked out early (${hoursWorked} hrs) and has no manager assigned.`,
             payload: { attendanceId: attendance.id },
@@ -441,14 +467,28 @@ export const getMyAttendanceMetrics = async (
       order: { clock_in_time: "DESC" },
     });
 
-    // Fetch business day records (weekends excluded) using database-level filtering
-    const attendanceRecords = await attendanceRepo
+    const query = attendanceRepo
       .createQueryBuilder("attendance")
       .leftJoinAndSelect("attendance.branch", "branch")
-      .where("attendance.user_id = :userId", { userId: user.id })
-      .andWhere("attendance.clock_in_time >= :startDate", {
-        startDate: dateFilter instanceof Date ? dateFilter : dateFilter._value,
-      })
+      .where("attendance.user_id = :userId", { userId: user.id });
+
+    if (startDate && endDate) {
+      query.andWhere(
+        "attendance.clock_in_time BETWEEN :startDate AND :endDate",
+        {
+          startDate: new Date(startDate as string),
+          endDate: new Date(endDate as string),
+        },
+      );
+    } else {
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
+      query.andWhere("attendance.clock_in_time >= :startDate", {
+        startDate: daysAgo,
+      });
+    }
+
+    const attendanceRecords = await query
       .andWhere(getWeekendFilterWhereClause())
       .orderBy("attendance.clock_in_time", "DESC")
       .getMany();
@@ -504,10 +544,16 @@ export const getMyAttendanceMetrics = async (
       }
     });
 
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(
+      100,
+      Math.max(1, parseInt(limit as string) || 10),
+    );
     const startIndex = (pageNum - 1) * limitNum;
     const endIndex = pageNum * limitNum;
+
+    const totalRecords = attendanceRecords.length;
+    const totalPages = Math.ceil(totalRecords / limitNum);
 
     return res.status(200).json({
       status: "success",
@@ -539,9 +585,12 @@ export const getMyAttendanceMetrics = async (
           }),
         ),
         pagination: {
+          total: totalRecords,
           page: pageNum,
           limit: limitNum,
-          totalRecords: attendanceRecords.length,
+          totalPages,
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1,
         },
         recentAttendance: attendanceRecords
           .slice(startIndex, endIndex)
@@ -619,10 +668,22 @@ export const getAttendanceMetrics = async (
       .createQueryBuilder("attendance")
       .leftJoinAndSelect("attendance.user", "user")
       .leftJoinAndSelect("attendance.branch", "branch")
-      .leftJoinAndSelect("user.department", "department")
-      .where("attendance.clock_in_time >= :startDate", {
-        startDate: dateFilter instanceof Date ? dateFilter : dateFilter._value,
-      })
+      .leftJoinAndSelect("user.department", "department");
+
+    if (startDate && endDate) {
+      query.where("attendance.clock_in_time BETWEEN :startDate AND :endDate", {
+        startDate: new Date(startDate as string),
+        endDate: new Date(endDate as string),
+      });
+    } else {
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period as string));
+      query.where("attendance.clock_in_time >= :startDate", {
+        startDate: daysAgo,
+      });
+    }
+
+    query = query
       .andWhere(getWeekendFilterWhereClause())
       .orderBy("attendance.clock_in_time", "DESC");
 
@@ -744,14 +805,19 @@ export const getAttendanceMetrics = async (
       }
     });
 
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(
+      100,
+      Math.max(1, parseInt(limit as string) || 10),
+    );
     const startIndex = (pageNum - 1) * limitNum;
     const endIndex = pageNum * limitNum;
-    const paginatedUserMetrics = Object.values(userMetrics).slice(
-      startIndex,
-      endIndex,
-    );
+
+    const allUsers = Object.values(userMetrics);
+    const totalUsersCount = allUsers.length;
+    const totalPages = Math.ceil(totalUsersCount / limitNum);
+
+    const paginatedUserMetrics = allUsers.slice(startIndex, endIndex);
 
     return res.status(200).json({
       status: "success",
@@ -776,9 +842,12 @@ export const getAttendanceMetrics = async (
           weekendsExcluded,
         },
         pagination: {
+          total: totalUsersCount,
           page: pageNum,
           limit: limitNum,
-          totalUsers: Object.keys(userMetrics).length,
+          totalPages,
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1,
         },
         userMetrics: paginatedUserMetrics.map((user: any) => ({
           ...user,
@@ -791,7 +860,7 @@ export const getAttendanceMetrics = async (
             user.totalDays > 0
               ? ((user.presentDays / user.totalDays) * 100).toFixed(2) + "%"
               : "0%",
-        })), // Paginate the user metrics
+        })),
         branchMetrics: Object.values(branchMetrics).map((branch: any) => ({
           branchId: branch.branchId,
           branchName: branch.branchName,

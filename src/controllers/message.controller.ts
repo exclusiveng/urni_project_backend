@@ -5,6 +5,8 @@ import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { Brackets } from "typeorm";
 import { getIO } from "../socket";
+import { NotificationService } from "../services/notification.service";
+import { NotificationType } from "../entities/Notification";
 
 const messageRepo = AppDataSource.getRepository(Message);
 const userRepo = AppDataSource.getRepository(User);
@@ -38,15 +40,15 @@ export const sendMessage = async (
     // Emit a Socket.io event to the receiver's room (room names use user_<id>)
     getIO().to(`user_${receiver_id}`).emit("new_message", message);
 
-    // Buffer a notification to be persisted and delivered after response
-    if (typeof req.notify === "function") {
-      req.notify(receiver_id, {
-        type: "MESSAGE",
-        title: `New message from ${sender.name}`,
-        body: content,
-        payload: { messageId: message.id },
-      });
-    }
+    // Create a notification for the receiver
+    await NotificationService.createNotification({
+      userId: receiver_id,
+      actorId: sender.id,
+      type: NotificationType.MESSAGE,
+      title: `New message from ${sender.name}`,
+      body: content,
+      payload: { messageId: message.id },
+    });
 
     res.status(201).json({ status: "success", data: message });
   } catch (error: any) {
@@ -93,11 +95,9 @@ export const getMessages = async (
     // --- SCENARIO B: STANDARD USER ---
     else {
       if (!contactId) {
-        return res
-          .status(400)
-          .json({
-            message: "Please specify a user ID to fetch the conversation.",
-          });
+        return res.status(400).json({
+          message: "Please specify a user ID to fetch the conversation.",
+        });
       }
 
       // Standard users can ONLY see messages they sent OR received

@@ -17,12 +17,7 @@ router.use(protect);
 
 router.post("/upload-signature", uploadSignature.single("signature"), uploadUserSignature);
 
-// Update own profile or Admin updates user
-// We can use a permission like USER_UPDATE.
-// However, users should always be able to update themselves. 
-// The controller handles "self or admin" check.
-// So we just need to ensure they are logged in (protect).
-// But for *promoting* or changing roles, we need high-level permission.
+
 router.put("/update/:id", updateUser); 
 
 // Delete user: self or admin. Controller handles logic.
