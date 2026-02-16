@@ -97,7 +97,7 @@ export const clockIn = async (
 
     // 0. CEO Exemption
     if (user.role === UserRole.CEO) {
-      return res.status(403).json({
+      return res.status(200).json({
         message: "As CEO, you are exempted from clocking in.",
         info: "Your attendance is automatically marked as present.",
       });
@@ -288,7 +288,7 @@ export const clockOut = async (
 
     // 0. CEO Exemption
     if (user.role === UserRole.CEO) {
-      return res.status(403).json({
+      return res.status(200).json({
         message: "As CEO, you are exempted from clocking out.",
         info: "Your attendance is automatically managed.",
       });

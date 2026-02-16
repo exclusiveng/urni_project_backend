@@ -149,7 +149,7 @@ app.use("/api/messages", express.json({ limit: "200kb" }), messageRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 // tickets may include longer descriptions or inline payloads
-app.use("/api/tickets", express.json({ limit: "200kb" }), ticketRoutes);
+app.use("/api/tickets", express.json({ limit: "500kb" }), ticketRoutes);
 
 // leave/branches/departments/lookups use default small limit
 app.use("/api/leave", leaveRoutes);

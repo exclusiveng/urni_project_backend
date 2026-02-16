@@ -137,7 +137,7 @@ export const respondToLeave = async (
 
     // Final Approval Roles: Logic depends on the hierarchy.
     // MD and Admin are typically the final stops.
-    const terminalRoles = [UserRole.MD, UserRole.ADMIN];
+    const terminalRoles = [UserRole.MD, UserRole.ADMIN, UserRole.CEO];
 
     // If the CURRENT approver is one of these roles, it's final.
     if (terminalRoles.includes(approver.role)) {

@@ -196,6 +196,13 @@ export const respondToTicket = async (
 
         ticket.status = TicketStatus.CONTESTED;
         ticket.contest_note = contest_note;
+
+        // Save evidence image if uploaded
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (file) {
+          ticket.contest_image = file.path.replace(/\\/g, "/");
+        }
+
         await txTicketRepo.save(ticket);
 
         (res as any).__txResult = null;

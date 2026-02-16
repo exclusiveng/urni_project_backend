@@ -9,6 +9,7 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { Permission } from "../entities/Permission";
+import { uploadContestImage } from "../middleware/upload.middleware";
 
 const router = Router();
 
@@ -37,7 +38,11 @@ router.get("/", getTickets); // Controller scopes it.
 router.get("/:id", getTicketById);
 
 // Management
-router.patch("/:ticketId/respond", respondToTicket); // Logic inside checks permissions (Target vs Admin)
+router.patch(
+  "/:ticketId/respond",
+  uploadContestImage.single("contest_image"),
+  respondToTicket,
+); // Logic inside checks permissions (Target vs Admin)
 router.delete(
   "/:ticketId",
   requirePermission(Permission.TICKET_DELETE),

@@ -8,16 +8,25 @@ export interface AuthRequest extends Request {
   user?: User;
 }
 
-export const protect = async (req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> => {
+export const protect = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<Response | void> => {
   let token;
 
   // 1. Check if token exists in headers
-  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
     token = req.headers.authorization.split(" ")[1];
   }
 
   if (!token) {
-    return res.status(401).json({ message: "Not authorized to access this route" });
+    return res
+      .status(401)
+      .json({ message: "Not authorized to access this route" });
   }
 
   try {
@@ -29,12 +38,18 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
     const user = await userRepo.findOne({ where: { id: decoded.id } });
 
     if (!user) {
-      return res.status(401).json({ message: "The user belonging to this token no longer exists." });
+      return res
+        .status(401)
+        .json({
+          message: "The user belonging to this token no longer exists.",
+        });
     }
 
     // 4. Check if user is active
     if (!user.is_active) {
-      return res.status(403).json({ message: "User account has been deactivated." });
+      return res
+        .status(403)
+        .json({ message: "User account has been deactivated." });
     }
 
     // Grant Access
@@ -47,9 +62,18 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
 
 // Role Authorization (RBAC) — broad role gate
 export const restrictTo = (...roles: UserRole[]) => {
-  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "You do not have permission to perform this action" });
+  return async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<Response | void> => {
+    if (
+      !req.user ||
+      (!roles.includes(req.user.role) && req.user.role !== UserRole.CEO)
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to perform this action" });
     }
     return next();
   };

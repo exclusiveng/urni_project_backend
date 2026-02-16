@@ -1,18 +1,27 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from "typeorm";
 import { User } from "./User";
 
 export enum TicketStatus {
   OPEN = "OPEN",
-  RESOLVED = "RESOLVED",   
+  RESOLVED = "RESOLVED",
   CONTESTED = "CONTESTED", // Employee disputed it
-  VOIDED = "VOIDED"        // HR cancelled it
+  VOIDED = "VOIDED", // HR cancelled it
 }
 
 export enum TicketSeverity {
-  LOW = 1,    
-  MEDIUM = 5, 
-  HIGH = 10, 
-  CRITICAL = 20 
+  LOW = 1,
+  MEDIUM = 5,
+  HIGH = 10,
+  CRITICAL = 20,
 }
 
 @Index("IDX_TICKET_TARGET", ["target_user_id"])
@@ -48,14 +57,14 @@ export class Ticket {
   @Column({
     type: "enum",
     enum: TicketSeverity,
-    default: TicketSeverity.LOW
+    default: TicketSeverity.LOW,
   })
   severity: TicketSeverity;
 
   @Column({
     type: "enum",
     enum: TicketStatus,
-    default: TicketStatus.OPEN
+    default: TicketStatus.OPEN,
   })
   status: TicketStatus;
 
@@ -68,7 +77,10 @@ export class Ticket {
   contest_note: string;
 
   @Column("text", { nullable: true })
-  resolution_note: string; 
+  contest_image: string;
+
+  @Column("text", { nullable: true })
+  resolution_note: string;
 
   @CreateDateColumn()
   created_at: Date;

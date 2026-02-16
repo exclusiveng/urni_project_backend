@@ -328,6 +328,7 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
                 "status" "tickets_status_enum" NOT NULL DEFAULT 'OPEN',
                 "is_anonymous" boolean NOT NULL DEFAULT false,
                 "contest_note" text,
+                "contest_image" text,
                 "resolution_note" text,
                 "created_at" TIMESTAMP NOT NULL DEFAULT now(),
                 "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
