@@ -389,8 +389,10 @@ export const deleteUser = async (
     const { id } = req.params;
     const currentUser = req.user!;
 
-    // Allow self-delete or Admin/CEO
-    const isAdmin = [UserRole.CEO, UserRole.ADMIN].includes(currentUser.role);
+    // Allow self-delete or Admin/CEO (normalized check)
+    const isAdmin =
+      currentUser.role?.toString().trim().toUpperCase() === "CEO" ||
+      currentUser.role === UserRole.ADMIN;
     const isOwner = currentUser.id === id;
 
     if (!isAdmin && !isOwner) {

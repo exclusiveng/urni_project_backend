@@ -68,7 +68,7 @@ export const restrictTo = (...roles: UserRole[]) => {
     if (
       !req.user ||
       (!roles.includes(req.user.role) &&
-        req.user.role?.toString().toUpperCase() !== "CEO")
+        req.user.role?.toString().trim().toUpperCase() !== "CEO")
     ) {
       return res
         .status(403)

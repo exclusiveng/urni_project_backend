@@ -26,20 +26,20 @@ export const requirePermission = (...requiredPermissions: Permission[]) => {
     const { role, permissions: customPermissions } = req.user;
 
     // CEO always passes (god-mode bypass)
-    if (role && role.toString().toUpperCase() === "CEO") {
-      return next();
-    }
+    const isCEO = role && role.toString().trim().toUpperCase() === "CEO";
 
-    // Check if user has ANY of the required permissions
-    const hasAccess = requiredPermissions.some((perm) =>
-      userHasPermission(role, customPermissions || [], perm),
-    );
+    if (!isCEO) {
+      // Check if user has ANY of the required permissions
+      const hasAccess = requiredPermissions.some((perm) =>
+        userHasPermission(role, customPermissions || [], perm),
+      );
 
-    if (!hasAccess) {
-      return res.status(403).json({
-        message:
-          "You do not have the required permission to perform this action",
-      });
+      if (!hasAccess) {
+        return res.status(403).json({
+          message:
+            "You do not have the required permission to perform this action",
+        });
+      }
     }
 
     return next();

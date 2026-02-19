@@ -110,7 +110,7 @@ export const respondToLeave = async (
 
     if (
       leave.current_approver_id !== approver.id &&
-      approver.role?.toString().toUpperCase() !== "CEO"
+      approver.role?.toString().trim().toUpperCase() !== "CEO"
     ) {
       res.status(403).json({
         message: "You are not the current approver for this request.",
@@ -140,10 +140,10 @@ export const respondToLeave = async (
     const terminalRoles = [UserRole.MD, UserRole.ADMIN, UserRole.CEO];
 
     // If the CURRENT approver is one of these roles, it's final.
-    // If the CURRENT approver is one of these roles, it's final. (CEO bypass check)
+    // If the CURRENT approver is one of these roles, it's final. (CEO bypass check with trim)
     if (
       terminalRoles.includes(approver.role) ||
-      approver.role?.toString().toUpperCase() === "CEO"
+      approver.role?.toString().trim().toUpperCase() === "CEO"
     ) {
       leave.status = LeaveStatus.APPROVED;
       leave.current_approver_id = null;

@@ -38,7 +38,7 @@ export const issueTicket = async (
       // 2. For other roles, check their authority:
       // CEO and MD roles have broad authority and can issue tickets to anyone.
       const isPowerUser =
-        issuer.role?.toString().toUpperCase() === "CEO" ||
+        issuer.role?.toString().trim().toUpperCase() === "CEO" ||
         issuer.role === UserRole.MD;
       if (!isPowerUser) {
         // For roles like DEPARTMENT_HEAD, they can only issue tickets to their direct subordinates.
@@ -136,7 +136,7 @@ export const respondToTicket = async (
       }
 
       const isSuperUser =
-        user.role?.toString().toUpperCase() === "CEO" ||
+        user.role?.toString().trim().toUpperCase() === "CEO" ||
         user.role === UserRole.MD;
 
       // Only the accused OR a super user can respond
@@ -412,7 +412,7 @@ export const getTickets = async (
 
     // Scenario A: CEO/SuperAdmin (God Mode - See Contested or All)
     if (
-      user.role?.toString().toUpperCase() === "CEO" ||
+      user.role?.toString().trim().toUpperCase() === "CEO" ||
       user.role === UserRole.MD
     ) {
       // Show all, specifically highlighting contested ones
@@ -477,7 +477,7 @@ export const deleteTicket = async (
     if (
       !userRole ||
       !(
-        userRole.toString().toUpperCase() === "CEO" ||
+        userRole.toString().trim().toUpperCase() === "CEO" ||
         [UserRole.MD, UserRole.ADMIN].includes(userRole as UserRole)
       )
     ) {
@@ -521,7 +521,7 @@ export const getTicketById = async (
     const hasAccess =
       ticket.issuer_id === user.id ||
       ticket.target_user_id === user.id ||
-      user.role?.toString().toUpperCase() === "CEO" ||
+      user.role?.toString().trim().toUpperCase() === "CEO" ||
       [UserRole.MD, UserRole.ADMIN].includes(user.role);
 
     if (!hasAccess) {

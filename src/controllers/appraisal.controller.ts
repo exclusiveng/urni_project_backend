@@ -181,7 +181,7 @@ export const getMonthlyAppraisal = async (
         UserRole.HR,
         UserRole.DEPARTMENT_HEAD,
       ].includes(req.user!.role);
-      const isCEO = req.user!.role?.toString().toUpperCase() === "CEO";
+      const isCEO = req.user!.role?.toString().trim().toUpperCase() === "CEO";
       if (!isAtLeastHR && !isCEO) {
         return res.status(403).json({
           message:

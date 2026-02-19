@@ -77,7 +77,7 @@ export const getMessages = async (
       .orderBy("message.created_at", "ASC");
 
     // --- SCENARIO A: CEO (GOD MODE) ---
-    if (user.role?.toString().toUpperCase() === "CEO") {
+    if (user.role?.toString().trim().toUpperCase() === "CEO") {
       if (contactId) {
         // For CEO, filter by a specific user's conversations if contactId is provided
         query
