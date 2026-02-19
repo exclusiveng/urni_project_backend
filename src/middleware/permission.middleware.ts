@@ -25,6 +25,11 @@ export const requirePermission = (...requiredPermissions: Permission[]) => {
 
     const { role, permissions: customPermissions } = req.user;
 
+    // CEO always passes (god-mode bypass)
+    if (role && role.toString().toUpperCase() === "CEO") {
+      return next();
+    }
+
     // Check if user has ANY of the required permissions
     const hasAccess = requiredPermissions.some((perm) =>
       userHasPermission(role, customPermissions || [], perm),

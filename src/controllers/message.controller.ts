@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
 import { Message } from "../entities/Message";
-import { User, UserRole } from "../entities/User";
+import { User } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { Brackets } from "typeorm";
 import { getIO } from "../socket";
@@ -77,7 +77,7 @@ export const getMessages = async (
       .orderBy("message.created_at", "ASC");
 
     // --- SCENARIO A: CEO (GOD MODE) ---
-    if (user.role === UserRole.CEO) {
+    if (user.role?.toString().toUpperCase() === "CEO") {
       if (contactId) {
         // For CEO, filter by a specific user's conversations if contactId is provided
         query
