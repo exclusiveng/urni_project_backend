@@ -58,11 +58,39 @@ export enum Permission {
  * CEO gets everything. Other roles get progressively fewer.
  */
 export function getDefaultPermissions(role: UserRole): Permission[] {
-  const allPermissions = Object.values(Permission);
-
   switch (role) {
     case UserRole.CEO:
-      return allPermissions; // God mode
+      return [
+        Permission.COMPANY_CREATE,
+        Permission.COMPANY_UPDATE,
+        Permission.COMPANY_DELETE,
+        Permission.COMPANY_VIEW_ALL,
+        Permission.BRANCH_CREATE,
+        Permission.BRANCH_UPDATE,
+        Permission.BRANCH_DELETE,
+        Permission.DEPT_CREATE,
+        Permission.DEPT_UPDATE,
+        Permission.DEPT_DELETE,
+        Permission.DEPT_SET_HEAD,
+        Permission.DEPT_ADD_MEMBER,
+        Permission.DEPT_REMOVE_MEMBER,
+        Permission.USER_CREATE,
+        Permission.USER_UPDATE,
+        Permission.USER_DELETE,
+        Permission.USER_VIEW_ALL,
+        Permission.USER_PROMOTE,
+        Permission.USER_MANAGE_PERMISSIONS,
+        Permission.ATTENDANCE_VIEW_ALL,
+        Permission.ATTENDANCE_METRICS,
+        Permission.ATTENDANCE_OVERRIDE,
+        Permission.LEAVE_APPROVE,
+        Permission.LEAVE_VIEW_ALL,
+        Permission.TICKET_MANAGE,
+        Permission.TICKET_DELETE,
+        Permission.APPRAISAL_CREATE,
+        Permission.APPRAISAL_VIEW_ALL,
+        Permission.NOTIFICATION_BROADCAST,
+      ];
 
     case UserRole.MD:
       return [

@@ -367,6 +367,23 @@ export class CreateAllEntities1770000000000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE UNIQUE INDEX IF NOT EXISTS "UQ_worklog_user_date" ON "work_logs" ("user_id", "date")`,
     );
+
+    // Ensure existing CEO users have explicit permissions set (God Mode Synchronization)
+    await queryRunner.query(`
+      UPDATE "users" 
+      SET "permissions" = ARRAY[
+        'company:create', 'company:update', 'company:delete', 'company:view_all',
+        'branch:create', 'branch:update', 'branch:delete',
+        'department:create', 'department:update', 'department:delete', 'department:set_head', 'department:add_member', 'department:remove_member',
+        'user:create', 'user:update', 'user:delete', 'user:view_all', 'user:promote', 'user:manage_permissions',
+        'attendance:view_all', 'attendance:metrics', 'attendance:override',
+        'leave:approve', 'leave:view_all',
+        'ticket:manage', 'ticket:delete',
+        'appraisal:create', 'appraisal:view_all',
+        'notification:broadcast'
+      ] 
+      WHERE "role" = 'CEO'
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
