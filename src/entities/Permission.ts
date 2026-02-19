@@ -167,8 +167,8 @@ export function userHasPermission(
   customPermissions: string[],
   required: Permission,
 ): boolean {
-  // CEO always passes
-  if (role === UserRole.CEO) return true;
+  // CEO always passes (case-insensitive check for reliability)
+  if (role && role.toString().toUpperCase() === "CEO") return true;
 
   const defaults = getDefaultPermissions(role);
   return defaults.includes(required) || customPermissions.includes(required);

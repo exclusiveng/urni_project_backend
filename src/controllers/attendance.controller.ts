@@ -95,8 +95,8 @@ export const clockIn = async (
       req.body;
     const user = req.user!;
 
-    // 0. CEO Exemption
-    if (user.role === UserRole.CEO) {
+    // 0. CEO Exemption (case-insensitive check)
+    if (user.role?.toString().toUpperCase() === "CEO") {
       return res.status(200).json({
         message: "As CEO, you are exempted from clocking in.",
         info: "Your attendance is automatically marked as present.",
@@ -240,6 +240,8 @@ export const clockIn = async (
         const admins = await userRepo.find({
           where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
         });
+        // Note: Repository find with enum is handled by TypeORM, but we should be aware
+        // that our code-level checks are now more robust.
         for (const a of admins) {
           await NotificationService.createNotification({
             userId: a.id,
@@ -286,8 +288,8 @@ export const clockOut = async (
     const user = req.user!;
     const now = new Date();
 
-    // 0. CEO Exemption
-    if (user.role === UserRole.CEO) {
+    // 0. CEO Exemption (case-insensitive check)
+    if (user.role?.toString().toUpperCase() === "CEO") {
       return res.status(200).json({
         message: "As CEO, you are exempted from clocking out.",
         info: "Your attendance is automatically managed.",

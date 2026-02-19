@@ -2,3 +2,5 @@
 /node_modules
 /package-lock.json
 /dist
+verify_ceo_fix.js
+verify_ceo_fix.ts

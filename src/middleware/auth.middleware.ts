@@ -38,11 +38,9 @@ export const protect = async (
     const user = await userRepo.findOne({ where: { id: decoded.id } });
 
     if (!user) {
-      return res
-        .status(401)
-        .json({
-          message: "The user belonging to this token no longer exists.",
-        });
+      return res.status(401).json({
+        message: "The user belonging to this token no longer exists.",
+      });
     }
 
     // 4. Check if user is active
@@ -69,7 +67,8 @@ export const restrictTo = (...roles: UserRole[]) => {
   ): Promise<Response | void> => {
     if (
       !req.user ||
-      (!roles.includes(req.user.role) && req.user.role !== UserRole.CEO)
+      (!roles.includes(req.user.role) &&
+        req.user.role?.toString().toUpperCase() !== "CEO")
     ) {
       return res
         .status(403)

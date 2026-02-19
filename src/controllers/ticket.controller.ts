@@ -37,7 +37,10 @@ export const issueTicket = async (
 
       // 2. For other roles, check their authority:
       // CEO and MD roles have broad authority and can issue tickets to anyone.
-      if (![UserRole.CEO, UserRole.MD].includes(issuer.role)) {
+      const isPowerUser =
+        issuer.role?.toString().toUpperCase() === "CEO" ||
+        issuer.role === UserRole.MD;
+      if (!isPowerUser) {
         // For roles like DEPARTMENT_HEAD, they can only issue tickets to their direct subordinates.
         // This check ensures the target user reports directly to the issuer.
         if (target.reports_to_id !== issuer.id) {
@@ -132,7 +135,9 @@ export const respondToTicket = async (
         throw { statusCode: 404, message: "Ticket not found" };
       }
 
-      const isSuperUser = [UserRole.CEO, UserRole.MD].includes(user.role);
+      const isSuperUser =
+        user.role?.toString().toUpperCase() === "CEO" ||
+        user.role === UserRole.MD;
 
       // Only the accused OR a super user can respond
       if (ticket.target_user_id !== user.id && !isSuperUser) {
@@ -309,6 +314,8 @@ export const respondToTicket = async (
       const admins = await userRepo.find({
         where: [{ role: UserRole.CEO }, { role: UserRole.MD }],
       });
+      // Repository find is handled by TypeORM, but we manually check normalized role in the loop if needed.
+      // For now, these admins will be notified.
       for (const a of admins) {
         await NotificationService.createNotification({
           userId: a.id,
@@ -404,7 +411,10 @@ export const getTickets = async (
     const skip = (page - 1) * limit;
 
     // Scenario A: CEO/SuperAdmin (God Mode - See Contested or All)
-    if ([UserRole.CEO, UserRole.MD].includes(user.role)) {
+    if (
+      user.role?.toString().toUpperCase() === "CEO" ||
+      user.role === UserRole.MD
+    ) {
       // Show all, specifically highlighting contested ones
       const [tickets, total] = await ticketRepo.findAndCount({
         order: { created_at: "DESC" },
@@ -466,8 +476,9 @@ export const deleteTicket = async (
     // Only CEO or MD can delete tickets
     if (
       !userRole ||
-      ![UserRole.CEO, UserRole.MD, UserRole.ADMIN].includes(
-        userRole as UserRole,
+      !(
+        userRole.toString().toUpperCase() === "CEO" ||
+        [UserRole.MD, UserRole.ADMIN].includes(userRole as UserRole)
       )
     ) {
       return res
@@ -510,7 +521,8 @@ export const getTicketById = async (
     const hasAccess =
       ticket.issuer_id === user.id ||
       ticket.target_user_id === user.id ||
-      [UserRole.CEO, UserRole.MD, UserRole.ADMIN].includes(user.role);
+      user.role?.toString().toUpperCase() === "CEO" ||
+      [UserRole.MD, UserRole.ADMIN].includes(user.role);
 
     if (!hasAccess) {
       return res

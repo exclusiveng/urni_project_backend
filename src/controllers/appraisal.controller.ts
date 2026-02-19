@@ -174,15 +174,15 @@ export const getMonthlyAppraisal = async (
 
     // Security Check: Ensure user has permission to view others
     if (targetUserId !== req.user!.id) {
-      const allowedRoles = [
-        UserRole.CEO,
+      // Expanded roles slightly to include HR/Dept Head as they might need to see reports
+      const isAtLeastHR = [
         UserRole.ADMIN,
         UserRole.MD,
         UserRole.HR,
         UserRole.DEPARTMENT_HEAD,
-      ];
-      // Expanded roles slightly to include HR/Dept Head as they might need to see reports
-      if (!allowedRoles.includes(req.user!.role)) {
+      ].includes(req.user!.role);
+      const isCEO = req.user!.role?.toString().toUpperCase() === "CEO";
+      if (!isAtLeastHR && !isCEO) {
         return res.status(403).json({
           message:
             "You do not have permission to view other users' appraisals.",
