@@ -14,7 +14,7 @@ const router = Router();
 
 router.use(protect);
 
-
+// branch get
 router.get("/", getAllBranches); 
 router.get("/:id", getBranchById);
 
