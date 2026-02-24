@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   clockIn,
   clockOut,
+  adminClockInUser,
   createBranch,
   getAllBranches,
   getAttendanceMetrics,
@@ -25,6 +26,9 @@ router.post("/clock-in", clockIn);
 router.post("/clock-out", clockOut);
 router.get("/status", getAttendanceStatus);
 router.get("/my-metrics", getMyAttendanceMetrics);
+
+// --- Admin Actions ---
+router.post("/admin/clock-in-user", adminClockInUser);
 
 // --- Branch Management (often overlapping with Branch routes) ---
 // If the attendance controller has createBranch logic, we gate it:
