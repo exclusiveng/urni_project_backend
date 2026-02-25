@@ -80,8 +80,18 @@ const fileFilter = (
   );
 };
 
-export const uploadProfilePic = multer({ storage: profileStorage, fileFilter });
-export const uploadCompanyLogo = multer({ storage: logoStorage, fileFilter });
+const UPLOAD_LIMIT = { fileSize: 5 * 1024 * 1024 }; // 5 MB
+
+export const uploadProfilePic = multer({
+  storage: profileStorage,
+  fileFilter,
+  limits: UPLOAD_LIMIT,
+});
+export const uploadCompanyLogo = multer({
+  storage: logoStorage,
+  fileFilter,
+  limits: UPLOAD_LIMIT,
+});
 
 // Define storage for signatures
 const signatureStorage = multer.diskStorage({
@@ -113,6 +123,7 @@ const signatureStorage = multer.diskStorage({
 export const uploadSignature = multer({
   storage: signatureStorage,
   fileFilter,
+  limits: UPLOAD_LIMIT,
 });
 
 // Define storage for ticket contest evidence images
@@ -145,4 +156,5 @@ const contestStorage = multer.diskStorage({
 export const uploadContestImage = multer({
   storage: contestStorage,
   fileFilter,
+  limits: UPLOAD_LIMIT,
 });

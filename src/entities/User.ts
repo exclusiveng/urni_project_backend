@@ -1,4 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, Index, BeforeInsert } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  Index,
+  BeforeInsert,
+} from "typeorm";
 import { Department } from "./Department";
 import { Branch } from "./Branch";
 import { Company } from "./Company";
@@ -6,13 +17,13 @@ import { Company } from "./Company";
 // Login roles — determines the user's access tier.
 // DEPARTMENT_HEAD and ASST_DEPARTMENT_HEAD are promotion-only (never assigned at registration).
 export enum UserRole {
-  CEO = "CEO",                              // God mode — controls entire system
-  MD = "MD",                                // Manages companies within their branch
-  ADMIN = "ADMIN",                          // Central overseer across the system
-  HR = "HR",                                // Human resources management
-  DEPARTMENT_HEAD = "DEPARTMENT_HEAD",       // Controls their department (promotion only)
+  CEO = "CEO", // God mode — controls entire system
+  MD = "MD", // Manages companies within their branch
+  ADMIN = "ADMIN", // Central overseer across the system
+  HR = "HR", // Human resources management
+  DEPARTMENT_HEAD = "DEPARTMENT_HEAD", // Controls their department (promotion only)
   ASST_DEPARTMENT_HEAD = "ASST_DEPARTMENT_HEAD", // Assists department head (promotion only)
-  GENERAL_STAFF = "GENERAL_STAFF",          // Default registration role
+  GENERAL_STAFF = "GENERAL_STAFF", // Default registration role
 }
 
 // Staff position — describes employment type, separate from login role.
@@ -126,6 +137,13 @@ export class User {
   // A manager has MANY subordinates
   @OneToMany(() => User, (user) => user.reportsTo)
   subordinates: User[];
+
+  // --- Password Reset ---
+  @Column({ nullable: true, select: false })
+  reset_password_token: string;
+
+  @Column({ type: "timestamp", nullable: true })
+  reset_password_expires: Date;
 
   // --- Meta ---
   @CreateDateColumn()

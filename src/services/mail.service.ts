@@ -150,7 +150,7 @@ export class MailService {
     const merged = {
       subject,
       preheader: context.preheader || (context.body ? (context.body.replace(/(<([^>]+)>|\n)/g, " ") || "") : ""),
-      brandName: process.env.MAIL_BRAND_NAME || "URNI",
+      brandName: process.env.MAIL_BRAND_NAME || "TBG",
       brandUrl: process.env.MAIL_BRAND_URL || "example.com",
       logoUrl: process.env.MAIL_BRAND_LOGO_URL || "",
       unsubscribe_url: process.env.MAIL_UNSUBSCRIBE_URL || "",

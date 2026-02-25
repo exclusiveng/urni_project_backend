@@ -21,7 +21,7 @@ router.use(protect);
 // Or maybe it requires permission?
 // Let's stick to restricting viewing others.
 
-router.post("/", requirePermission(Permission.APPRAISAL_CREATE), createAppraisal);
+router.post("/", createAppraisal);
 router.get("/my-appraisals", getMyAppraisals);
 
 // Manager view
