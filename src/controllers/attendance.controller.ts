@@ -436,6 +436,130 @@ export const clockOut = async (
   }
 };
 
+// Admin: Clock in a user manually
+export const adminClockInUser = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const { userId, override_reason } = req.body;
+    const admin = req.user!;
+
+    // 0. Verify admin permissions
+    const adminRoles = [UserRole.CEO, UserRole.MD, UserRole.HR, UserRole.ADMIN];
+    if (!adminRoles.includes(admin.role)) {
+      return res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        requiredRole: "CEO or MD",
+      });
+    }
+
+    // 1. Validate input
+    if (!userId) {
+      return res.status(400).json({
+        message: "User ID is required.",
+      });
+    }
+
+    if (!override_reason || override_reason.trim().length === 0) {
+      return res.status(400).json({
+        message: "A reason for the override is required.",
+      });
+    }
+
+    // 2. Get target user
+    const targetUser = await userRepo.findOne({
+      where: { id: userId },
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({
+        message: "User not found.",
+      });
+    }
+
+    // 3. Check if user is CEO (cannot be clocked in by admin)
+    if (targetUser.role === UserRole.CEO) {
+      return res.status(403).json({
+        message: "Cannot clock in a CEO member.",
+      });
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // 4. Check if user already has a clock-in record for today
+    const existing = await attendanceRepo.findOne({
+      where: {
+        user_id: userId,
+        clock_in_time: MoreThanOrEqual(todayStart),
+      },
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        message: `${targetUser.name} has already clocked in today.`,
+      });
+    }
+
+    // 5. Weekend detection
+    const now = new Date();
+    const isWeekendDay = isWeekend(now);
+
+    // 6. Determine Status (Simple logic: Late if after 9:00 AM)
+    let status = AttendanceStatus.PRESENT;
+    const utcHour = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    if (utcHour > 8 || (utcHour === 8 && utcMinutes > 0)) {
+      status = AttendanceStatus.LATE;
+    }
+
+    // 7. Create Record with admin override
+    const attendance = attendanceRepo.create({
+      user_id: userId,
+      branch_id: null, // Admin override doesn't require GPS/branch
+      clock_in_time: now,
+      status,
+      is_manual_override: true,
+      override_reason: override_reason.trim(),
+      is_weekend_work: isWeekendDay,
+    });
+
+    await attendanceRepo.save(attendance);
+
+    // 8. Notify the clocked-in user
+    await NotificationService.createNotification({
+      userId: userId,
+      actorId: admin.id,
+      type: NotificationType.ATTENDANCE,
+      title: "Clock-in by Administrator",
+      body: `${admin.name} clocked you in. Reason: ${override_reason}`,
+      payload: { attendanceId: attendance.id },
+    });
+
+    return res.status(201).json({
+      status: "success",
+      message: `${targetUser.name} has been clocked in by admin.`,
+      data: {
+        attendance,
+        clockedInUser: {
+          id: targetUser.id,
+          name: targetUser.name,
+          email: targetUser.email,
+        },
+        admin: {
+          id: admin.id,
+          name: admin.name,
+        },
+        overrideReason: override_reason,
+        isWeekendWork: isWeekendDay,
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Get user's own attendance metrics
 export const getMyAttendanceMetrics = async (
   req: AuthRequest,
