@@ -6,6 +6,7 @@ import { Department } from "../entities/Department";
 import { TicketSeverity, TicketStatus } from "../entities/Ticket";
 import { User, UserRole } from "../entities/User";
 import { Company } from "../entities/Company";
+import { appCache, CacheKeys } from "../utils/cache";
 
 /**
  * Helper to parse pagination & search params
@@ -47,7 +48,9 @@ export const getCompanies = async (req: Request, res: Response) => {
     const { page, limit, skip, q } = parsePaging(req);
     const repo = AppDataSource.getRepository(Company);
 
-    const qb = repo.createQueryBuilder("c").select(["c.id", "c.name", "c.abbreviation"]);
+    const qb = repo
+      .createQueryBuilder("c")
+      .select(["c.id", "c.name", "c.abbreviation"]);
     if (q) {
       qb.where("LOWER(c.name) LIKE :q OR LOWER(c.abbreviation) LIKE :q", {
         q: `%${q.toLowerCase()}%`,
@@ -70,13 +73,14 @@ export const getCompanies = async (req: Request, res: Response) => {
   }
 };
 
-
 export const getBranches = async (req: Request, res: Response) => {
   try {
     const { page, limit, skip, q } = parsePaging(req);
     const repo = AppDataSource.getRepository(Branch);
 
-    const qb = repo.createQueryBuilder("b").select(["b.id", "b.name", "b.gps_lat", "b.gps_long", "b.radius_meters"]);
+    const qb = repo
+      .createQueryBuilder("b")
+      .select(["b.id", "b.name", "b.gps_lat", "b.gps_long", "b.radius_meters"]);
     if (q) qb.where("LOWER(b.name) LIKE :q", { q: `%${q.toLowerCase()}%` });
     qb.orderBy("b.name", "ASC").skip(skip).take(limit);
 
@@ -105,7 +109,9 @@ export const getUsers = async (req: Request, res: Response) => {
       .select(["u.id", "u.name", "u.email"]);
 
     if (q) {
-      qb.where("LOWER(u.name) LIKE :q OR LOWER(u.email) LIKE :q", { q: `%${q.toLowerCase()}%` });
+      qb.where("LOWER(u.name) LIKE :q OR LOWER(u.email) LIKE :q", {
+        q: `%${q.toLowerCase()}%`,
+      });
     }
 
     qb.orderBy("u.name", "ASC").skip(skip).take(limit);
@@ -129,25 +135,44 @@ export const getMe = async (req: any, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({ status: "error", message: "Not authenticated" });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Not authenticated" });
+    }
+
+    // Attempt cache lookup
+    const cacheKey = CacheKeys.USER_ME(userId);
+    const cachedData = appCache.get(cacheKey);
+    if (cachedData) {
+      return res
+        .status(200)
+        .json({ status: "success", data: cachedData, cached: true });
     }
 
     const repo = AppDataSource.getRepository(User);
     const user = await repo.findOne({
       where: { id: userId },
-      relations: ["department", "branch", "reportsTo", "subordinates"],
+      relations: ["department", "branch", "reportsTo"],
     });
 
     if (!user) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res
+        .status(404)
+        .json({ status: "error", message: "User not found" });
     }
 
-    const isManager = (user.subordinates && user.subordinates.length > 0) || user.role !== UserRole.GENERAL_STAFF;
+    // Check if manager: either by role or if they have subordinates
+    let isManager = user.role !== UserRole.GENERAL_STAFF;
+    if (!isManager) {
+      const subCount = await repo.count({ where: { reports_to_id: userId } });
+      isManager = subCount > 0;
+    }
 
     user.password = undefined as any;
-    // We don't want to send all subordinate objects, just the flag
     const userData = { ...user, is_manager: isManager };
-    delete (userData as any).subordinates;
+
+    // Store in cache for 1 hour
+    appCache.set(cacheKey, userData);
 
     return res.status(200).json({ status: "success", data: userData });
   } catch (err: any) {
@@ -166,14 +191,15 @@ export const getUserById = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      return res.status(404).json({ status: "error", message: "User not found" });
+      return res
+        .status(404)
+        .json({ status: "error", message: "User not found" });
     }
 
     // It's crucial to never send the password hash to the client
     user.password = undefined as any;
 
     return res.status(200).json({ status: "success", data: user });
-
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }
@@ -191,7 +217,9 @@ const enumToPairs = (enm: any) =>
 export const getRoles = async (_req: Request, res: Response) => {
   try {
     const data = enumToPairs(UserRole);
-    return res.status(200).json({ status: "success", results: data.length, data });
+    return res
+      .status(200)
+      .json({ status: "success", results: data.length, data });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }
@@ -200,7 +228,9 @@ export const getRoles = async (_req: Request, res: Response) => {
 export const getTicketSeverities = async (_req: Request, res: Response) => {
   try {
     const data = enumToPairs(TicketSeverity);
-    return res.status(200).json({ status: "success", results: data.length, data });
+    return res
+      .status(200)
+      .json({ status: "success", results: data.length, data });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }
@@ -209,7 +239,9 @@ export const getTicketSeverities = async (_req: Request, res: Response) => {
 export const getTicketStatuses = async (_req: Request, res: Response) => {
   try {
     const data = enumToPairs(TicketStatus);
-    return res.status(200).json({ status: "success", results: data.length, data });
+    return res
+      .status(200)
+      .json({ status: "success", results: data.length, data });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }
@@ -218,7 +250,9 @@ export const getTicketStatuses = async (_req: Request, res: Response) => {
 export const getAttendanceStatuses = async (_req: Request, res: Response) => {
   try {
     const data = enumToPairs(AttendanceStatus);
-    return res.status(200).json({ status: "success", results: data.length, data });
+    return res
+      .status(200)
+      .json({ status: "success", results: data.length, data });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });
   }
@@ -236,7 +270,16 @@ export const getBranchLocations = async (_req: Request, res: Response) => {
     // Fetch all branches with only the fields needed for geofencing
     const branches = await repo
       .createQueryBuilder("b")
-      .select(["b.id", "b.name", "b.gps_lat", "b.gps_long", "b.radius_meters", "b.address", "b.location_city", "b.updated_at"])
+      .select([
+        "b.id",
+        "b.name",
+        "b.gps_lat",
+        "b.gps_long",
+        "b.radius_meters",
+        "b.address",
+        "b.location_city",
+        "b.updated_at",
+      ])
       .orderBy("b.name", "ASC")
       .getMany();
 
@@ -249,18 +292,20 @@ export const getBranchLocations = async (_req: Request, res: Response) => {
     return res.status(200).json({
       status: "success",
       count: branches.length,
-      lastUpdated: lastUpdated ? new Date(lastUpdated).toISOString() : new Date().toISOString(),
+      lastUpdated: lastUpdated
+        ? new Date(lastUpdated).toISOString()
+        : new Date().toISOString(),
       // Cache hint for clients (24 hours in seconds)
       cacheMaxAge: 86400,
-      data: branches.map(b => ({
+      data: branches.map((b) => ({
         id: b.id,
         name: b.name,
         gps_lat: parseFloat(String(b.gps_lat)),
         gps_long: parseFloat(String(b.gps_long)),
         radius_meters: b.radius_meters || 100,
         address: b.address,
-        location_city: b.location_city
-      }))
+        location_city: b.location_city,
+      })),
     });
   } catch (err: any) {
     return res.status(500).json({ status: "error", message: err.message });

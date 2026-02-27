@@ -11,6 +11,7 @@ import { DeepPartial } from "typeorm";
 import { NotificationService } from "../services/notification.service";
 import { mailService } from "../services/mail.service";
 import { NotificationType } from "../entities/Notification";
+import { appCache, CacheKeys } from "../utils/cache";
 
 // Extend Express Request
 declare module "express" {
@@ -253,6 +254,10 @@ export const updateUser = async (
 
     user.phone = phone || user.phone;
     await userRepo.save(user);
+
+    // Invalidate Cache
+    appCache.del(CacheKeys.USER_ME(id));
+
     return res
       .status(200)
       .json({ message: "User updated successfully", data: { user } });
@@ -307,6 +312,9 @@ export const promoteUser = async (
 
     user.role = role;
     await userRepo.save(user);
+
+    // Invalidate Cache
+    appCache.del(CacheKeys.USER_ME(userId));
 
     // Notify User of Promotion/Role Change
     await NotificationService.createNotification({
@@ -373,6 +381,10 @@ export const uploadUserSignature = async (
 
     user.signature_url = signatureUrl;
     await userRepo.save(user);
+
+    // Invalidate Cache
+    appCache.del(CacheKeys.USER_ME(user.id));
+
     return res
       .status(200)
       .json({ status: "success", data: { signature_url: signatureUrl } });
@@ -403,6 +415,10 @@ export const deleteUser = async (
     if (!user) return res.status(404).json({ message: "User not found" });
 
     await userRepo.remove(user);
+
+    // Invalidate Cache
+    appCache.del(CacheKeys.USER_ME(id));
+
     return res.status(200).json({ message: "User deleted" });
   } catch (error: any) {
     res.status(500).json({ message: error.message });

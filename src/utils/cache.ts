@@ -5,5 +5,6 @@ import NodeCache from "node-cache";
 export const appCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 
 export const CacheKeys = {
-    ALL_BRANCHES: "ALL_BRANCHES_KEY"
+  ALL_BRANCHES: "ALL_BRANCHES_KEY",
+  USER_ME: (userId: string) => `USER_ME_${userId}`,
 };
