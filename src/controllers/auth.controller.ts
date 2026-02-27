@@ -305,6 +305,13 @@ export const promoteUser = async (
     const user = await userRepo.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // CEO Lock: Do not allow changing the CEO's role
+    if (user.role === UserRole.CEO) {
+      return res
+        .status(400)
+        .json({ message: "The CEO role cannot be changed or demoted." });
+    }
+
     // Validate dep if becoming a head
     if (
       [UserRole.DEPARTMENT_HEAD, UserRole.ASST_DEPARTMENT_HEAD].includes(role)
@@ -586,6 +593,13 @@ export const deleteUser = async (
 
     const user = await userRepo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // CEO Lock: Do not allow deleting the CEO
+    if (user.role === UserRole.CEO) {
+      return res
+        .status(400)
+        .json({ message: "The CEO account cannot be deleted." });
+    }
 
     await userRepo.remove(user);
     return res.status(200).json({ message: "User deleted" });
