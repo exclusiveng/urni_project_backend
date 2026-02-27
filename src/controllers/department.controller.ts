@@ -37,6 +37,12 @@ export const createDepartment = async (
     if (head_id) {
       const headUser = await userRepo.findOne({ where: { id: head_id } });
       if (headUser) {
+        // CEO Lock: Do not change role if they are the CEO
+        if (headUser.role === UserRole.CEO) {
+          return res.status(400).json({
+            message: "The CEO cannot be assigned as a Department Head.",
+          });
+        }
         dept.head = headUser;
         // Auto-promote
         headUser.role = UserRole.DEPARTMENT_HEAD;
@@ -179,6 +185,13 @@ export const setDepartmentHead = async (
       }
     }
 
+    // CEO Lock: Do not change role if they are the CEO
+    if (user.role === UserRole.CEO) {
+      return res
+        .status(400)
+        .json({ message: "The CEO cannot be assigned as a Department Head." });
+    }
+
     // Assign new head
     dept.head = user;
 
@@ -239,6 +252,13 @@ export const setAssistantHead = async (
         oldAsst.role = UserRole.GENERAL_STAFF;
         await userRepo.save(oldAsst);
       }
+    }
+
+    // CEO Lock: Do not change role if they are the CEO
+    if (user.role === UserRole.CEO) {
+      return res.status(400).json({
+        message: "The CEO cannot be assigned as an Assistant Department Head.",
+      });
     }
 
     dept.assistantHead = user;

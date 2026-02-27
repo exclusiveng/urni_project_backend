@@ -1,6 +1,20 @@
 import { Router } from "express";
-import { deleteUser, forgotPassword, login, register, updateUser, uploadUserSignature, promoteUser } from "../controllers/auth.controller";
-import { uploadProfilePic, uploadSignature } from "../middleware/upload.middleware";
+import express from "express";
+import {
+  deleteUser,
+  forgotPassword,
+  showResetForm,
+  resetPassword,
+  login,
+  register,
+  updateUser,
+  uploadUserSignature,
+  promoteUser,
+} from "../controllers/auth.controller";
+import {
+  uploadProfilePic,
+  uploadSignature,
+} from "../middleware/upload.middleware";
 import { protect } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { Permission } from "../entities/Permission";
@@ -12,18 +26,34 @@ router.post("/register", uploadProfilePic.single("profile_pic"), register);
 router.post("/login", login);
 router.post("/forgot-password", forgotPassword);
 
+// Backend-rendered password reset flow
+router.get("/reset-password", showResetForm);
+router.post(
+  "/reset-password",
+  express.urlencoded({ extended: false }),
+  resetPassword,
+);
+
 // Protected Routes
 router.use(protect);
 
-router.post("/upload-signature", uploadSignature.single("signature"), uploadUserSignature);
+router.post(
+  "/upload-signature",
+  uploadSignature.single("signature"),
+  uploadUserSignature,
+);
 
-
-router.put("/update/:id", updateUser); 
+// Self-update or users with USER_UPDATE permission (controller enforces the check)
+router.put("/update/:id", updateUser);
 
 // Delete user: self or admin. Controller handles logic.
 router.delete("/:id", requirePermission(Permission.USER_DELETE), deleteUser);
 
 // Promotion endpoint (New)
-router.patch("/promote/:userId", requirePermission(Permission.USER_PROMOTE), promoteUser);
+router.patch(
+  "/promote/:userId",
+  requirePermission(Permission.USER_PROMOTE),
+  promoteUser,
+);
 
 export default router;

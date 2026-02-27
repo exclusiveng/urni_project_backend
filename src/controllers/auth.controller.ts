@@ -4,6 +4,10 @@ import { User, UserRole, UserPosition } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import Handlebars from "handlebars";
 import { Department } from "../entities/Department";
 import { Branch } from "../entities/Branch";
 import { Company } from "../entities/Company";
@@ -12,6 +16,7 @@ import { NotificationService } from "../services/notification.service";
 import { mailService } from "../services/mail.service";
 import { NotificationType } from "../entities/Notification";
 import { appCache, CacheKeys } from "../utils/cache";
+import { Permission, userHasPermission } from "../entities/Permission";
 
 // Extend Express Request
 declare module "express" {
@@ -134,12 +139,12 @@ export const register = async (
     // Welcome Notification & Email
     await NotificationService.createNotification({
       userId: newUser.id,
-      title: "Welcome to URNI!",
-      body: `Hi ${newUser.name}, welcome aboard! We're glad to have you in the ${companyAbbreviation || "URNI"} team.`,
+      title: "Welcome to TBG!",
+      body: `Hi ${newUser.name}, welcome aboard! We're glad to have you in the ${companyAbbreviation || "TBG"} team.`,
       type: NotificationType.GENERIC,
       emailOptions: {
         send: true,
-        subject: "Welcome to URNI!",
+        subject: "Welcome to TBG!",
         context: {
           name: newUser.name,
           body: "Your account has been successfully created. You can now log in and start using the platform.",
@@ -199,25 +204,37 @@ export const login = async (
   }
 };
 
-// UPDATE USER (Admin/Self)
+// UPDATE USER (Self or Admin with USER_UPDATE permission)
 export const updateUser = async (
-  req: Request,
+  req: AuthRequest,
   res: Response,
 ): Promise<Response | void> => {
   try {
     const { id } = req.params;
-    const { name, email, role, department_id, company_id, phone, position } =
-      req.body;
+    const currentUser = req.user!;
 
-    // Note: Role update should ideally use promoteUser, but we leave it here for Admin flexibility
-    // However, restrictive logic should ideally enforce using proper promotion flows.
+    // SECURITY: Only the user themselves OR a user with USER_UPDATE permission may update a profile.
+    const isSelf = currentUser.id === id;
+    const canUpdate = userHasPermission(
+      currentUser.role,
+      currentUser.permissions || [],
+      Permission.USER_UPDATE,
+    );
+    if (!isSelf && !canUpdate) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to update this user." });
+    }
+
+    const { name, email, department_id, company_id, phone, position } =
+      req.body;
+    // NOTE: `role` is intentionally excluded — use the dedicated /promote endpoint.
 
     const user = await userRepo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     user.name = name || user.name;
     user.email = email || user.email;
-    user.role = role || user.role;
     user.position = position || user.position;
 
     // Handle company/department updates logic...
@@ -293,6 +310,13 @@ export const promoteUser = async (
     const user = await userRepo.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // CEO Lock: Do not allow changing the CEO's role
+    if (user.role === UserRole.CEO) {
+      return res
+        .status(400)
+        .json({ message: "The CEO role cannot be changed or demoted." });
+    }
+
     // Validate dep if becoming a head
     if (
       [UserRole.DEPARTMENT_HEAD, UserRole.ASST_DEPARTMENT_HEAD].includes(role)
@@ -346,26 +370,197 @@ export const forgotPassword = async (
   req: Request,
   res: Response,
 ): Promise<Response | void> => {
+  // SECURITY: Always return the same generic response regardless of whether the
+  // email exists, to prevent account enumeration.
+  const GENERIC_RESPONSE = {
+    status: "success",
+    message:
+      "If an account with that email exists, a password reset link has been sent.",
+  };
+
   try {
     const { email } = req.body;
     const user = await userRepo.findOne({ where: { email } });
-    if (!user) return res.status(404).json({ message: "User not found" });
 
-    const token = signToken(user.id);
+    if (!user) {
+      // Still return 200 to prevent enumeration
+      return res.status(200).json(GENERIC_RESPONSE);
+    }
 
-    // Send password reset email
+    // Generate a secure random token using Node built-in crypto (no extra deps)
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Store the raw token + expiry on the user record
+    (user as any).reset_password_token = rawToken;
+    user.reset_password_expires = expiresAt;
+    await userRepo.save(user);
+
+    // Build a backend-hosted reset link — no FRONTEND_URL dependency
+    const host =
+      process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const resetLink = `${host}/api/auth/reset-password?token=${rawToken}`;
+
+    // Send email with reset link
     await mailService.sendMail({
       to: user.email,
       subject: "Password Reset Request",
-      text: `You requested a password reset. Use this token to reset your password: ${token}`,
-      html: `<p>You requested a password reset. Click <a href="${process.env.FRONTEND_URL}/reset-password?token=${token}">here</a> to reset your password.</p>`,
+      text: `You requested a password reset. Use this link to reset your password (valid for 10 minutes): ${resetLink}`,
+      html: `<p>You requested a password reset.</p><p><a href="${resetLink}">Click here to reset your password</a> (link valid for 10 minutes).</p><p>If you did not request this, please ignore this email.</p>`,
     });
 
-    return res
-      .status(200)
-      .json({ status: "success", token, message: "Password reset link sent" });
+    return res.status(200).json(GENERIC_RESPONSE);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Helper: compile and render an HBS template from the templates directory
+const renderTemplate = (templateName: string, context: any): string => {
+  const filePath = path.join(
+    process.cwd(),
+    "src",
+    "templates",
+    `${templateName}.hbs`,
+  );
+  const source = fs.readFileSync(filePath, "utf8");
+  const compiled = Handlebars.compile(source);
+  return compiled(context);
+};
+
+// GET /api/auth/reset-password?token=xxx  — serves the password reset form
+export const showResetForm = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const token = req.query.token as string;
+
+    if (!token) {
+      const html = renderTemplate("reset-password-result", {
+        title: "Invalid Link",
+        success: false,
+        error: "No reset token provided. Please use the link from your email.",
+      });
+      return res.status(400).send(html);
+    }
+
+    // Validate the token exists and hasn't expired (don't just serve form blindly)
+    const user = await userRepo
+      .createQueryBuilder("user")
+      .addSelect("user.reset_password_token")
+      .addSelect("user.reset_password_expires")
+      .where("user.reset_password_token = :token", { token })
+      .getOne();
+
+    if (
+      !user ||
+      !user.reset_password_expires ||
+      user.reset_password_expires < new Date()
+    ) {
+      const html = renderTemplate("reset-password-result", {
+        title: "Link Expired",
+        success: false,
+        error:
+          "This password reset link is invalid or has expired. Please request a new one.",
+      });
+      return res.status(400).send(html);
+    }
+
+    // Token is valid — serve the form with the token embedded
+    const html = renderTemplate("reset-password-form", { token });
+    return res.status(200).send(html);
+  } catch (error: any) {
+    const html = renderTemplate("reset-password-result", {
+      title: "Error",
+      success: false,
+      error: "Something went wrong. Please try again.",
+    });
+    return res.status(500).send(html);
+  }
+};
+
+// POST /api/auth/reset-password  — processes the form and renders result page
+export const resetPassword = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      const html = renderTemplate("reset-password-form", {
+        token: token || "",
+        error: "Please fill in all fields.",
+      });
+      return res.status(400).send(html);
+    }
+
+    if (newPassword.length < 8) {
+      const html = renderTemplate("reset-password-form", {
+        token,
+        error: "Password must be at least 8 characters.",
+      });
+      return res.status(400).send(html);
+    }
+
+    // Find user by raw token, also selecting the hidden reset fields
+    const user = await userRepo
+      .createQueryBuilder("user")
+      .addSelect("user.reset_password_token")
+      .addSelect("user.reset_password_expires")
+      .addSelect("user.password")
+      .where("user.reset_password_token = :token", { token })
+      .getOne();
+
+    if (!user) {
+      const html = renderTemplate("reset-password-result", {
+        title: "Reset Failed",
+        success: false,
+        error: "Invalid or expired password reset token.",
+      });
+      return res.status(400).send(html);
+    }
+
+    // Check token expiry
+    if (
+      !user.reset_password_expires ||
+      user.reset_password_expires < new Date()
+    ) {
+      const html = renderTemplate("reset-password-result", {
+        title: "Token Expired",
+        success: false,
+        error:
+          "This password reset link has expired. Please request a new one.",
+      });
+      return res.status(400).send(html);
+    }
+
+    // Hash the new password and save
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+
+    // Clear the reset fields
+    (user as any).reset_password_token = null;
+    user.reset_password_expires = null as any;
+
+    await userRepo.save(user);
+
+    // Invalidate Cache
+    appCache.del(CacheKeys.USER_ME(user.id));
+
+    const html = renderTemplate("reset-password-result", {
+      title: "Password Reset",
+      success: true,
+    });
+    return res.status(200).send(html);
+  } catch (error: any) {
+    const html = renderTemplate("reset-password-result", {
+      title: "Error",
+      success: false,
+      error: "Something went wrong. Please try again.",
+    });
+    return res.status(500).send(html);
   }
 };
 
@@ -413,6 +608,13 @@ export const deleteUser = async (
 
     const user = await userRepo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // CEO Lock: Do not allow deleting the CEO
+    if (user.role === UserRole.CEO) {
+      return res
+        .status(400)
+        .json({ message: "The CEO account cannot be deleted." });
+    }
 
     await userRepo.remove(user);
 
