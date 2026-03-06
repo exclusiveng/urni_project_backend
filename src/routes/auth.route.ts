@@ -24,7 +24,6 @@ const router = Router();
 // Public Routes
 router.post("/register", uploadProfilePic.single("profile_pic"), register);
 router.post("/login", login);
-router.post("/forgot-password", forgotPassword);
 
 // Backend-rendered password reset flow
 router.get("/reset-password", showResetForm);
@@ -36,6 +35,8 @@ router.post(
 
 // Protected Routes
 router.use(protect);
+
+router.post("/forgot-password", forgotPassword);
 
 router.post(
   "/upload-signature",

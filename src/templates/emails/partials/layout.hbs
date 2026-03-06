@@ -1,54 +1,225 @@
-<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{subject}}</title>
     <style>
-      /* Simple responsive, email-safe styles */
-      body { margin:0; padding:0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f5f7fa; color:#333; }
-      .preheader { display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; }
-      .container { max-width:680px; margin:0 auto; background:#ffffff; border-radius:6px; overflow:hidden; box-shadow:0 6px 18px rgba(16,24,40,0.08); }
-      .header { padding:20px 28px; background:#f97316; color:#fff; display:flex; align-items:center; gap:12px }
-      .logo { height:36px; width:auto; }
-      .content { padding:28px; font-size:16px; line-height:1.5; color:#111827; }
-      .title { font-size:20px; font-weight:600; margin-bottom:8px; }
-      .body { margin-bottom:20px; }
-      .cta { display:inline-block; text-decoration:none; background:#f97316; color:#fff; padding:10px 16px; border-radius:6px; font-weight:600 }
-      .muted { color:#6b7280; font-size:13px }
-      .footer { padding:18px 28px; font-size:13px; color:#6b7280; background:#f9fafb; }
-      @media (max-width:480px){ .container{ margin:12px } .header{ padding:16px } .content{ padding:18px } }
+      /* TBG Premium Email Styles */
+      body {
+        margin: 0;
+        padding: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        background-color: #f4f4f5;
+        color: #1a1a1a;
+      }
+      .preheader {
+        display: none !important;
+        visibility: hidden;
+        opacity: 0;
+        color: transparent;
+        height: 0;
+        width: 0;
+      }
+      .wrapper {
+        width: 100%;
+        background-color: #f4f4f5;
+        padding: 40px 0;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+      }
+      .header {
+        background-color: #0a0a0a;
+        padding: 30px 40px;
+        text-align: center;
+        border-top: 6px solid #e65c00;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .logo-img {
+        max-height: 45px;
+        width: auto;
+      }
+      .brand-text {
+        color: #ffffff;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        margin: 0;
+        text-transform: uppercase;
+      }
+      .brand-accent {
+        color: #e65c00;
+      }
+      .content {
+        padding: 40px;
+        background-color: #ffffff;
+        font-size: 16px;
+        line-height: 1.6;
+        color: #27272a;
+      }
+      .title {
+        color: #0a0a0a;
+        font-size: 24px;
+        font-weight: 700;
+        margin-top: 0;
+        margin-bottom: 24px;
+      }
+      .body-text p {
+        margin-top: 0;
+        margin-bottom: 20px;
+      }
+      .body-text strong {
+        color: #0a0a0a;
+      }
+      .cta-container {
+        margin: 35px 0 20px 0;
+      }
+      .cta-button {
+        display: inline-block;
+        background-color: #e65c00;
+        color: #ffffff !important;
+        text-decoration: none;
+        padding: 16px 32px;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        text-align: center;
+        transition: background-color 0.2s ease-in-out;
+      }
+      .cta-button:hover {
+        background-color: #cc5200;
+      }
+      .divider {
+        height: 1px;
+        background-color: #e4e4e7;
+        margin: 40px 0 30px 0;
+      }
+      .support-text {
+        font-size: 14px;
+        color: #71717a;
+        margin-bottom: 0;
+      }
+      .support-link {
+        color: #e65c00;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .footer {
+        background-color: #fafafa;
+        padding: 30px 40px;
+        text-align: center;
+        border-top: 1px solid #f4f4f5;
+        font-size: 13px;
+        color: #a1a1aa;
+        line-height: 1.6;
+      }
+      .footer-brand {
+        font-weight: 600;
+        color: #52525b;
+        margin-bottom: 8px;
+        letter-spacing: 0.5px;
+      }
+      .footer-links a {
+        color: #71717a;
+        text-decoration: underline;
+      }
+      @media only screen and (max-width: 600px) {
+        .wrapper {
+          padding: 20px 10px;
+        }
+        .header {
+          padding: 25px 20px;
+        }
+        .content {
+          padding: 30px 20px;
+        }
+        .footer {
+          padding: 30px 20px;
+        }
+        .cta-button {
+          display: block;
+          width: 100%;
+          box-sizing: border-box;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="preheader">{{preheader}}</div>
-    <div class="container">
-      <div class="header">
-        {{#if logoUrl}}
-          <img src="{{logoUrl}}" alt="{{brandName}}" class="logo" />
-        {{else}}
-          <strong style="color:#fff">{{brandName}}</strong>
-        {{/if}}
-      </div>
+    <div class="wrapper">
+      <div class="container">
+        <!-- Header -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td class="header" align="center">
+              {{#if logoUrl}}
+                <img
+                  src="{{logoUrl}}"
+                  alt="{{brandName}} Logo"
+                  class="logo-img"
+                />
+              {{else}}
+                <h1 class="brand-text">{{brandName}}<span
+                    class="brand-accent"
+                  >.</span></h1>
+              {{/if}}
+            </td>
+          </tr>
+        </table>
 
-      <div class="content">
-        {{#if title}}
-          <div class="title">{{title}}</div>
-        {{/if}}
+        <!-- Main Content -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td class="content">
+              {{#if title}}
+                <h2 class="title">{{title}}</h2>
+              {{/if}}
 
-        <div class="body">{{{body}}}</div>
+              <div class="body-text">
+                {{{body}}}
+              </div>
 
-        {{#if cta_url}}
-          <p><a href="{{cta_url}}" class="cta">{{cta_text}}</a></p>
-        {{/if}}
+              {{#if cta_url}}
+                <div class="cta-container">
+                  <a href="{{cta_url}}" class="cta-button">{{cta_text}}</a>
+                </div>
+              {{/if}}
 
-        <p class="muted">If you did not expect this email, you can disregard it or contact <a href="mailto:support@{{brandUrl}}">support</a>.</p>
-      </div>
+              <div class="divider"></div>
 
-      <div class="footer">
-        <div>{{brandName}} • <span>{{brandUrl}}</span></div>
-        <div style="margin-top:6px">{{unsubscribe_message}}</div>
-        <div class="muted" style="margin-top:8px">© {{year}} {{brandName}}. All rights reserved.</div>
+              <p class="support-text">
+                If you didn't request this email, there's nothing to worry about, you can safely ignore it.
+                <br /><br />
+                For any questions, reach out to our
+                <a
+                  href="mailto:support@{{brandUrl}}"
+                  class="support-link"
+                >Support Team</a>.
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td class="footer">
+              <div class="footer-brand">{{brandName}} © {{year}}</div>
+              <div style="margin-top: 15px;" class="footer-links">
+                {{{unsubscribe_message}}}
+              </div>
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
   </body>

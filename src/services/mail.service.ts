@@ -3,8 +3,9 @@ import path from "path";
 import Handlebars from "handlebars";
 import nodemailer from "nodemailer";
 import sgMail from "@sendgrid/mail";
+import { Resend } from "resend";
 
-type Provider = "smtp" | "sendgrid" | "console";
+type Provider = "smtp" | "sendgrid" | "console" | "resend";
 
 interface MailOptions {
   to: string;
@@ -17,6 +18,7 @@ interface MailOptions {
 export class MailService {
   private provider: Provider;
   private transporter: nodemailer.Transporter | null = null;
+  private resend: Resend | null = null;
   private templates: Map<string, Handlebars.TemplateDelegate> = new Map();
   private mailingEnabled: boolean = true;
 
@@ -32,8 +34,16 @@ export class MailService {
 
     if (this.provider === "sendgrid") {
       const key = process.env.SENDGRID_API_KEY;
-      if (!key) throw new Error("SENDGRID_API_KEY is required for sendgrid provider");
+      if (!key)
+        throw new Error("SENDGRID_API_KEY is required for sendgrid provider");
       sgMail.setApiKey(key);
+    }
+
+    if (this.provider === "resend") {
+      const key = process.env.RESEND_API_KEY;
+      if (!key)
+        throw new Error("RESEND_API_KEY is required for resend provider");
+      this.resend = new Resend(key);
     }
 
     if (this.provider === "smtp") {
@@ -43,7 +53,10 @@ export class MailService {
       const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
       const smtpSecure = (process.env.SMTP_SECURE || "false") === "true";
 
-      if (!smtpUser || !smtpPass) throw new Error("SMTP_USER and SMTP_PASS are required for smtp provider");
+      if (!smtpUser || !smtpPass)
+        throw new Error(
+          "SMTP_USER and SMTP_PASS are required for smtp provider",
+        );
 
       this.transporter = nodemailer.createTransport({
         host: smtpHost,
@@ -73,7 +86,13 @@ export class MailService {
 
   private registerPartials() {
     try {
-      const partialsDir = path.join(process.cwd(), "src", "templates", "emails", "partials");
+      const partialsDir = path.join(
+        process.cwd(),
+        "src",
+        "templates",
+        "emails",
+        "partials",
+      );
       if (!fs.existsSync(partialsDir)) return;
       const files = fs.readdirSync(partialsDir);
       for (const f of files) {
@@ -90,8 +109,15 @@ export class MailService {
   private loadTemplate(name: string) {
     if (this.templates.has(name)) return this.templates.get(name)!;
 
-    const filePath = path.join(process.cwd(), "src", "templates", "emails", `${name}.hbs`);
-    if (!fs.existsSync(filePath)) throw new Error(`Template not found: ${name}`);
+    const filePath = path.join(
+      process.cwd(),
+      "src",
+      "templates",
+      "emails",
+      `${name}.hbs`,
+    );
+    if (!fs.existsSync(filePath))
+      throw new Error(`Template not found: ${name}`);
 
     const content = fs.readFileSync(filePath, "utf8");
     const compiled = Handlebars.compile(content);
@@ -100,15 +126,26 @@ export class MailService {
   }
 
   async sendMail(opts: MailOptions) {
-    const from = opts.from || process.env.MAIL_FROM || `no-reply@${process.env.MAIL_FROM_DOMAIN || "example.com"}`;
+    const from =
+      opts.from ||
+      process.env.MAIL_FROM ||
+      `no-reply@${process.env.MAIL_FROM_DOMAIN || "example.com"}`;
 
     if (!this.mailingEnabled) {
-      console.info("[MailService] Mailing disabled by MAILING_ENABLED=0 - skipping send", { to: opts.to, subject: opts.subject });
+      console.info(
+        "[MailService] Mailing disabled by MAILING_ENABLED=0 - skipping send",
+        { to: opts.to, subject: opts.subject },
+      );
       return;
     }
 
     if (this.provider === "console") {
-      console.info("[MailService] Sending mail (console provider)", { to: opts.to, subject: opts.subject, text: opts.text, html: opts.html });
+      console.info("[MailService] Sending mail (console provider)", {
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+        html: opts.html,
+      });
       return;
     }
 
@@ -123,8 +160,24 @@ export class MailService {
       return;
     }
 
+    if (this.provider === "resend") {
+      if (!this.resend) throw new Error("Resend not initialized");
+      const res = await this.resend.emails.send({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text || "",
+        html: opts.html || "",
+      });
+      if (res.error) {
+        throw new Error(`Resend Error: ${res.error.message}`);
+      }
+      return;
+    }
+  
     if (this.provider === "smtp") {
-      if (!this.transporter) throw new Error("SMTP transporter not initialized");
+      if (!this.transporter)
+        throw new Error("SMTP transporter not initialized");
 
       await this.transporter.sendMail({
         to: opts.to,
@@ -139,9 +192,17 @@ export class MailService {
     throw new Error("Mail provider not supported");
   }
 
-  async sendTemplate(to: string, subject: string, templateName: string, context: any = {}) {
+  async sendTemplate(
+    to: string,
+    subject: string,
+    templateName: string,
+    context: any = {},
+  ) {
     if (!this.mailingEnabled) {
-      console.info("[MailService] Mailing disabled by MAILING_ENABLED=0 - skipping sendTemplate", { to, subject, templateName });
+      console.info(
+        "[MailService] Mailing disabled by MAILING_ENABLED=0 - skipping sendTemplate",
+        { to, subject, templateName },
+      );
       return;
     }
 
@@ -149,12 +210,18 @@ export class MailService {
 
     const merged = {
       subject,
-      preheader: context.preheader || (context.body ? (context.body.replace(/(<([^>]+)>|\n)/g, " ") || "") : ""),
+      preheader:
+        context.preheader ||
+        (context.body
+          ? context.body.replace(/(<([^>]+)>|\n)/g, " ") || ""
+          : ""),
       brandName: process.env.MAIL_BRAND_NAME || "TBG",
       brandUrl: process.env.MAIL_BRAND_URL || "example.com",
       logoUrl: process.env.MAIL_BRAND_LOGO_URL || "",
       unsubscribe_url: process.env.MAIL_UNSUBSCRIBE_URL || "",
-      unsubscribe_message: context.unsubscribe_message || `To manage your email preferences, visit your account settings or <a href=\"${process.env.MAIL_UNSUBSCRIBE_URL || "#"}\">unsubscribe</a>.`,
+      unsubscribe_message:
+        context.unsubscribe_message ||
+        `To manage your email preferences, visit your account settings or <a href=\"${process.env.MAIL_UNSUBSCRIBE_URL || "#"}\">unsubscribe</a>.`,
       year: context.year || new Date().getFullYear(),
       ...context,
     };

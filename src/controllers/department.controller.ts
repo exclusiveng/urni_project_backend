@@ -1,11 +1,11 @@
 import { Request, Response } from "express";
 import { AppDataSource } from "../../database/data-source";
-import { Department } from "../entities/Department";
-import { User, UserRole } from "../entities/User";
 import { Company } from "../entities/Company";
+import { Department } from "../entities/Department";
+import { NotificationType } from "../entities/Notification";
+import { User, UserRole } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { NotificationService } from "../services/notification.service";
-import { NotificationType } from "../entities/Notification";
 
 const deptRepo = AppDataSource.getRepository(Department);
 const userRepo = AppDataSource.getRepository(User);
@@ -37,16 +37,12 @@ export const createDepartment = async (
     if (head_id) {
       const headUser = await userRepo.findOne({ where: { id: head_id } });
       if (headUser) {
-        // CEO Lock: Do not change role if they are the CEO
-        if (headUser.role === UserRole.CEO) {
-          return res.status(400).json({
-            message: "The CEO cannot be assigned as a Department Head.",
-          });
-        }
         dept.head = headUser;
-        // Auto-promote
-        headUser.role = UserRole.DEPARTMENT_HEAD;
-        await userRepo.save(headUser);
+        // Auto-promote ONLY if not the CEO (to protect the CEO role)
+        if (headUser.role !== UserRole.CEO) {
+          headUser.role = UserRole.DEPARTMENT_HEAD;
+          await userRepo.save(headUser);
+        }
       }
     }
 
@@ -165,7 +161,15 @@ export const setDepartmentHead = async (
   res: Response,
 ): Promise<Response | void> => {
   try {
-    const { department_id, user_id } = req.body;
+    // Accept both camelCase (from mobile/web frontend) and snake_case
+    const department_id = req.body.departmentId ?? req.body.department_id;
+    const user_id = req.body.userId ?? req.body.user_id;
+
+    if (!department_id || !user_id) {
+      return res
+        .status(400)
+        .json({ message: "departmentId and userId are required." });
+    }
 
     const dept = await deptRepo.findOne({
       where: { id: department_id },
@@ -185,21 +189,16 @@ export const setDepartmentHead = async (
       }
     }
 
-    // CEO Lock: Do not change role if they are the CEO
-    if (user.role === UserRole.CEO) {
-      return res
-        .status(400)
-        .json({ message: "The CEO cannot be assigned as a Department Head." });
-    }
-
     // Assign new head
     dept.head = user;
 
-    // Update user role
-    user.role = UserRole.DEPARTMENT_HEAD;
-    user.department = dept;
-    user.permissions = []; // Reset granular permissions or keep them? Resetting safe for role change.
+    // Update user role ONLY if they are not the CEO (to protect the CEO role)
+    if (user.role !== UserRole.CEO) {
+      user.role = UserRole.DEPARTMENT_HEAD;
+      user.permissions = []; // Reset granular permissions or keep them? Resetting safe for role change.
+    }
 
+    user.department = dept;
     await userRepo.save(user);
     await deptRepo.save(dept);
 
@@ -232,7 +231,15 @@ export const setAssistantHead = async (
   res: Response,
 ): Promise<Response | void> => {
   try {
-    const { department_id, user_id } = req.body;
+    // Accept both camelCase (from mobile/web frontend) and snake_case
+    const department_id = req.body.departmentId ?? req.body.department_id;
+    const user_id = req.body.userId ?? req.body.user_id;
+
+    if (!department_id || !user_id) {
+      return res
+        .status(400)
+        .json({ message: "departmentId and userId are required." });
+    }
 
     const dept = await deptRepo.findOne({
       where: { id: department_id },
@@ -254,17 +261,13 @@ export const setAssistantHead = async (
       }
     }
 
-    // CEO Lock: Do not change role if they are the CEO
-    if (user.role === UserRole.CEO) {
-      return res.status(400).json({
-        message: "The CEO cannot be assigned as an Assistant Department Head.",
-      });
-    }
-
     dept.assistantHead = user;
 
-    // Update user role
-    user.role = UserRole.ASST_DEPARTMENT_HEAD;
+    // Update user role ONLY if they are not the CEO (to protect the CEO role)
+    if (user.role !== UserRole.CEO) {
+      user.role = UserRole.ASST_DEPARTMENT_HEAD;
+    }
+
     user.department = dept;
 
     await userRepo.save(user);
@@ -328,7 +331,16 @@ export const addUserToDepartment = async (
   res: Response,
 ): Promise<Response | void> => {
   try {
-    const { department_id, user_id } = req.body;
+    // Accept both camelCase (from mobile/web frontend) and snake_case
+    const department_id = req.body.departmentId ?? req.body.department_id;
+    const user_id = req.body.userId ?? req.body.user_id;
+
+    if (!department_id || !user_id) {
+      return res
+        .status(400)
+        .json({ message: "departmentId and userId are required." });
+    }
+
     const dept = await deptRepo.findOne({ where: { id: department_id } });
     if (!dept) return res.status(404).json({ message: "Department not found" });
 
@@ -366,7 +378,9 @@ export const removeUserFromDepartment = async (
   res: Response,
 ): Promise<Response | void> => {
   try {
-    const { department_id, user_id } = req.body;
+    // Accept both camelCase (from mobile/web frontend) and snake_case
+    const department_id = req.body.departmentId ?? req.body.department_id;
+    const user_id = req.body.userId ?? req.body.user_id;
     // Verify user is in dept?
     const user = await userRepo.findOne({
       where: { id: user_id },

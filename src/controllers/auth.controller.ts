@@ -145,6 +145,7 @@ export const register = async (
       emailOptions: {
         send: true,
         subject: "Welcome to TBG!",
+        template: "welcome",
         context: {
           name: newUser.name,
           body: "Your account has been successfully created. You can now log in and start using the platform.",
@@ -367,23 +368,26 @@ export const promoteUser = async (
 };
 
 export const forgotPassword = async (
-  req: Request,
+  req: AuthRequest,
   res: Response,
 ): Promise<Response | void> => {
   // SECURITY: Always return the same generic response regardless of whether the
   // email exists, to prevent account enumeration.
   const GENERIC_RESPONSE = {
     status: "success",
-    message:
-      "If an account with that email exists, a password reset link has been sent.",
+    message: "A password reset link has been sent to your email address.",
   };
 
   try {
-    const { email } = req.body;
+    // Instead of reading from body, fetch email directly from the logged-in user context
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    const email = req.user.email;
     const user = await userRepo.findOne({ where: { email } });
 
     if (!user) {
-      // Still return 200 to prevent enumeration
+      // Still return 200 to prevent enumeration (or error if we want strictness)
       return res.status(200).json(GENERIC_RESPONSE);
     }
 
@@ -401,13 +405,20 @@ export const forgotPassword = async (
       process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
     const resetLink = `${host}/api/auth/reset-password?token=${rawToken}`;
 
-    // Send email with reset link
-    await mailService.sendMail({
-      to: user.email,
-      subject: "Password Reset Request",
-      text: `You requested a password reset. Use this link to reset your password (valid for 10 minutes): ${resetLink}`,
-      html: `<p>You requested a password reset.</p><p><a href="${resetLink}">Click here to reset your password</a> (link valid for 10 minutes).</p><p>If you did not request this, please ignore this email.</p>`,
-    });
+    // Send styled TBG email with reset link
+    await mailService.sendTemplate(
+      user.email,
+      "Password Reset Request",
+      "password-reset",
+      {
+        title: "Reset Your Password",
+        body: `<p>Hi ${user.name},</p><p>We received a request to reset the password for your TBG account.</p><p>This link is only valid for <strong>10 minutes</strong>.</p>`,
+        cta_text: "Reset Password",
+        cta_url: resetLink,
+        unsubscribe_message:
+          "If you did not request this password reset, please ignore this email or contact support to secure your account.",
+      },
+    );
 
     return res.status(200).json(GENERIC_RESPONSE);
   } catch (error: any) {
