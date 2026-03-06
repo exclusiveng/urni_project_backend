@@ -400,9 +400,8 @@ export const forgotPassword = async (
     user.reset_password_expires = expiresAt;
     await userRepo.save(user);
 
-    // Build a backend-hosted reset link — no FRONTEND_URL dependency
-    const host =
-      process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+    // Build a backend-hosted reset link dynamically based on the environment
+    const host = process.env.API_URL || `${req.protocol}://${req.get("host")}`;
     const resetLink = `${host}/api/auth/reset-password?token=${rawToken}`;
 
     // Send styled TBG email with reset link
