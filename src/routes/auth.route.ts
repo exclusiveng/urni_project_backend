@@ -33,10 +33,12 @@ router.post(
   resetPassword,
 );
 
+router.post("/forgot-password", forgotPassword);
+
+
 // Protected Routes
 router.use(protect);
 
-router.post("/forgot-password", forgotPassword);
 
 router.post(
   "/upload-signature",

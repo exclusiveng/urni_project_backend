@@ -379,11 +379,16 @@ export const forgotPassword = async (
   };
 
   try {
-    // Instead of reading from body, fetch email directly from the logged-in user context
-    if (!req.user) {
-      return res.status(401).json({ message: "Authentication required" });
+    let email: string;
+    // If user is logged in, use their email, otherwise, get it from the request body
+    if (req.user) {
+      email = req.user.email;
+    } else {
+      email = req.body.email;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
     }
-    const email = req.user.email;
     const user = await userRepo.findOne({ where: { email } });
 
     if (!user) {
@@ -419,7 +424,7 @@ export const forgotPassword = async (
       },
     );
 
-    return res.status(200).json(GENERIC_RESPONSE);
+   return res.status(200).json(GENERIC_RESPONSE);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
