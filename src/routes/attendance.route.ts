@@ -10,7 +10,9 @@ import {
   getDailyMetrics,
   getMonthlyMetrics,
   getMyAttendanceMetrics,
-  getWeeklyMetrics
+  getWeeklyMetrics,
+  getUsersWithAttendanceStatus,
+  getUserAttendanceHistory,
 } from "../controllers/attendance.controller";
 import { protect } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
@@ -29,16 +31,38 @@ router.get("/my-metrics", getMyAttendanceMetrics);
 
 // --- Admin Actions ---
 router.post("/admin/clock-in-user", adminClockInUser);
+router.get("/users", getUsersWithAttendanceStatus);
+router.get("/users/:userId", getUserAttendanceHistory);
 
 // --- Branch Management (often overlapping with Branch routes) ---
 // If the attendance controller has createBranch logic, we gate it:
-router.post("/branches", requirePermission(Permission.BRANCH_CREATE), createBranch);
-router.get("/branches", getAllBranches); 
+router.post(
+  "/branches",
+  requirePermission(Permission.BRANCH_CREATE),
+  createBranch,
+);
+router.get("/branches", getAllBranches);
 
 // --- Metrics & Reporting (Managerial) ---
-router.get("/metrics", requirePermission(Permission.ATTENDANCE_METRICS), getAttendanceMetrics);
-router.get("/metrics/daily", requirePermission(Permission.ATTENDANCE_METRICS), getDailyMetrics);
-router.get("/metrics/weekly", requirePermission(Permission.ATTENDANCE_METRICS), getWeeklyMetrics);
-router.get("/metrics/monthly", requirePermission(Permission.ATTENDANCE_METRICS), getMonthlyMetrics);
+router.get(
+  "/metrics",
+  requirePermission(Permission.ATTENDANCE_METRICS),
+  getAttendanceMetrics,
+);
+router.get(
+  "/metrics/daily",
+  requirePermission(Permission.ATTENDANCE_METRICS),
+  getDailyMetrics,
+);
+router.get(
+  "/metrics/weekly",
+  requirePermission(Permission.ATTENDANCE_METRICS),
+  getWeeklyMetrics,
+);
+router.get(
+  "/metrics/monthly",
+  requirePermission(Permission.ATTENDANCE_METRICS),
+  getMonthlyMetrics,
+);
 
 export default router;
