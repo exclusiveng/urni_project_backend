@@ -4,7 +4,7 @@ import { User, UserRole, UserPosition } from "../entities/User";
 import { AuthRequest } from "../middleware/auth.middleware";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import fs from "fs";
 import path from "path";
 import Handlebars from "handlebars";
@@ -379,11 +379,16 @@ export const forgotPassword = async (
   };
 
   try {
-    // Instead of reading from body, fetch email directly from the logged-in user context
-    if (!req.user) {
-      return res.status(401).json({ message: "Authentication required" });
+    let email: string;
+    // If user is logged in, use their email, otherwise, get it from the request body
+    if (req.user) {
+      email = req.user.email;
+    } else {
+      email = req.body.email;
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
     }
-    const email = req.user.email;
     const user = await userRepo.findOne({ where: { email } });
 
     if (!user) {
@@ -419,21 +424,21 @@ export const forgotPassword = async (
       },
     );
 
-    return res.status(200).json(GENERIC_RESPONSE);
+   return res.status(200).json(GENERIC_RESPONSE);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
 };
 
 // Helper: compile and render an HBS template from the templates directory
-const renderTemplate = (templateName: string, context: any): string => {
+const renderTemplate = async (templateName: string, context: any): Promise<string> => {
   const filePath = path.join(
     process.cwd(),
     "src",
     "templates",
     `${templateName}.hbs`,
   );
-  const source = fs.readFileSync(filePath, "utf8");
+  const source = await fs.promises.readFile(filePath, "utf8");
   const compiled = Handlebars.compile(source);
   return compiled(context);
 };
@@ -447,7 +452,7 @@ export const showResetForm = async (
     const token = req.query.token as string;
 
     if (!token) {
-      const html = renderTemplate("reset-password-result", {
+      const html = await renderTemplate("reset-password-result", {
         title: "Invalid Link",
         success: false,
         error: "No reset token provided. Please use the link from your email.",
@@ -468,7 +473,7 @@ export const showResetForm = async (
       !user.reset_password_expires ||
       user.reset_password_expires < new Date()
     ) {
-      const html = renderTemplate("reset-password-result", {
+      const html = await renderTemplate("reset-password-result", {
         title: "Link Expired",
         success: false,
         error:
@@ -478,10 +483,10 @@ export const showResetForm = async (
     }
 
     // Token is valid — serve the form with the token embedded
-    const html = renderTemplate("reset-password-form", { token });
+    const html = await renderTemplate("reset-password-form", { token });
     return res.status(200).send(html);
   } catch (error: any) {
-    const html = renderTemplate("reset-password-result", {
+    const html = await renderTemplate("reset-password-result", {
       title: "Error",
       success: false,
       error: "Something went wrong. Please try again.",
@@ -499,7 +504,7 @@ export const resetPassword = async (
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
-      const html = renderTemplate("reset-password-form", {
+      const html = await renderTemplate("reset-password-form", {
         token: token || "",
         error: "Please fill in all fields.",
       });
@@ -507,7 +512,7 @@ export const resetPassword = async (
     }
 
     if (newPassword.length < 8) {
-      const html = renderTemplate("reset-password-form", {
+      const html = await renderTemplate("reset-password-form", {
         token,
         error: "Password must be at least 8 characters.",
       });
@@ -524,7 +529,7 @@ export const resetPassword = async (
       .getOne();
 
     if (!user) {
-      const html = renderTemplate("reset-password-result", {
+      const html = await renderTemplate("reset-password-result", {
         title: "Reset Failed",
         success: false,
         error: "Invalid or expired password reset token.",
@@ -537,7 +542,7 @@ export const resetPassword = async (
       !user.reset_password_expires ||
       user.reset_password_expires < new Date()
     ) {
-      const html = renderTemplate("reset-password-result", {
+      const html = await renderTemplate("reset-password-result", {
         title: "Token Expired",
         success: false,
         error:
@@ -559,13 +564,13 @@ export const resetPassword = async (
     // Invalidate Cache
     appCache.del(CacheKeys.USER_ME(user.id));
 
-    const html = renderTemplate("reset-password-result", {
+    const html = await renderTemplate("reset-password-result", {
       title: "Password Reset",
       success: true,
     });
     return res.status(200).send(html);
   } catch (error: any) {
-    const html = renderTemplate("reset-password-result", {
+    const html = await renderTemplate("reset-password-result", {
       title: "Error",
       success: false,
       error: "Something went wrong. Please try again.",

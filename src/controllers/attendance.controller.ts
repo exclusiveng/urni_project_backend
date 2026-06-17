@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Between, IsNull, MoreThanOrEqual } from "typeorm";
+import { Between, IsNull, MoreThanOrEqual, Brackets } from "typeorm";
 import { AppDataSource } from "../../database/data-source";
 import { Attendance, AttendanceStatus } from "../entities/Attendance";
 import { Branch } from "../entities/Branch";
@@ -1627,6 +1627,191 @@ export const getMonthlyMetrics = async (
                 : 0,
           }),
         ),
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Get users with their attendance status
+export const getUsersWithAttendanceStatus = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const admin = req.user!;
+    const adminRoles = [UserRole.CEO, UserRole.MD, UserRole.HR, UserRole.ADMIN];
+    if (!adminRoles.includes(admin.role)) {
+      return res.status(403).json({
+        message: "You do not have permission to access this data.",
+        requiredRole: "Admin Roles",
+      });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const search = req.query.search as string;
+
+    const query = userRepo
+      .createQueryBuilder("user")
+      .leftJoinAndSelect("user.company", "company")
+      .select([
+        "user.id",
+        "user.email",
+        "user.phone",
+        "user.role",
+        "user.name",
+        "user.created_at",
+        "company.id",
+        "company.name",
+      ]);
+
+    if (search) {
+      query.andWhere(
+        new Brackets((qb) => {
+          qb.where("user.name ILIKE :search", { search: `%${search}%` })
+            .orWhere("user.email ILIKE :search", { search: `%${search}%` })
+            .orWhere("user.phone ILIKE :search", { search: `%${search}%` });
+        }),
+      );
+    }
+
+    query
+      .orderBy("company.name", "ASC", "NULLS LAST")
+      .addOrderBy("user.created_at", "DESC")
+      .skip(skip)
+      .take(limit);
+
+    const [users, totalUsers] = await query.getManyAndCount();
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const usersWithStatus = await Promise.all(
+      users.map(async (u) => {
+        const attendance = await attendanceRepo.findOne({
+          where: {
+            user_id: u.id,
+            clock_in_time: MoreThanOrEqual(todayStart),
+          },
+          order: { clock_in_time: "DESC" },
+        });
+
+        let status = "Inactive";
+        if (attendance && !attendance.clock_out_time) {
+          status = "Active";
+        }
+
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+          companyId: u.company?.id || null,
+          companyName: u.company?.name || "No Company",
+          clockInStatus: status,
+        };
+      }),
+    );
+
+    const groupedByCompany = usersWithStatus.reduce(
+      (acc, user) => {
+        const cName = user.companyName as string;
+        if (!acc[cName]) {
+          acc[cName] = [];
+        }
+        acc[cName].push(user);
+        return acc;
+      },
+      {} as Record<string, any[]>,
+    );
+
+    const totalPages = Math.ceil(totalUsers / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        users: usersWithStatus,
+        groupedByCompany,
+        pagination: {
+          total: totalUsers,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Get a user's attendance history
+export const getUserAttendanceHistory = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const admin = req.user!;
+    const adminRoles = [UserRole.CEO, UserRole.MD, UserRole.HR, UserRole.ADMIN];
+    if (!adminRoles.includes(admin.role)) {
+      return res.status(403).json({
+        message: "You do not have permission to access this data.",
+        requiredRole: "Admin Roles",
+      });
+    }
+
+    const { userId } = req.params;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const user = await userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const [attendances, totalRecords] = await attendanceRepo.findAndCount({
+      where: { user_id: userId },
+      order: { clock_in_time: "DESC" },
+      skip,
+      take: limit,
+      relations: ["branch"],
+    });
+
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        },
+        attendances: attendances.map((record) => ({
+          id: record.id,
+          clockInTime: record.clock_in_time,
+          clockOutTime: record.clock_out_time,
+          status: record.status,
+          hoursWorked: record.hours_worked,
+          branchName: record.branch?.name || "None",
+          isWeekendWork: record.is_weekend_work,
+          isManualOverride: record.is_manual_override,
+        })),
+        pagination: {
+          total: totalRecords,
+          page,
+          limit,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
       },
     });
   } catch (error: any) {
