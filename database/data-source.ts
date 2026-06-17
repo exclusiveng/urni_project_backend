@@ -28,8 +28,8 @@ export const AppDataSource = new DataSource({
   entities: isProd ? ["dist/src/entities/**/*.js"] : ["src/entities/**/*.ts"],
   migrations: isProd ? ["dist/src/migrations/**/*.js"] : ["src/migrations/**/*.ts"],
   subscribers: isProd ? ["dist/src/subscribers/**/*.js"] : ["src/subscribers/**/*.ts"],
-  // SSL for production when using a DATABASE_URL (adjust via env var DATABASE_SSL=true)
-  ...(useUrl && (process.env.DATABASE_SSL === "true" || isProd) ? {
+  // SSL only when explicitly requested via DATABASE_SSL=true for DATABASE_URL connections
+  ...(useUrl && process.env.DATABASE_SSL === "true" ? {
     ssl: { rejectUnauthorized: false } as any
   } : {}),
 });
